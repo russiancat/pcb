@@ -388,22 +388,41 @@ def process_repo(
 # ── Candidates index ──────────────────────────────────────────────────────────
 
 def _collect_candidates(repo: dict, repo_dir: Path) -> List[dict]:
-    """Build candidate entries for all passing boards in repo_dir."""
+    """
+    Build candidate entries for all passing boards in repo_dir.
+
+    Companion files (schematic, project, design rules) are resolved by looking
+    for same-stem files in the same directory as the PCB — the standard KiCad
+    project layout.  Missing companions are recorded as null, not omitted, so
+    consumers know exactly what data is available for each board.
+    """
     entries: List[dict] = []
     for score_file in sorted(repo_dir.rglob("*.score.json")):
         score = json.loads(score_file.read_text())
         if not score.get("passes"):
             continue
+
+        stem = score_file.name.replace(".score.json", "")
+        d    = score_file.parent
+
+        def _companion(ext: str) -> Optional[str]:
+            p = d / (stem + ext)
+            return str(p) if p.exists() else None
+
         entries.append({
-            "repo":            repo["full_name"],
-            "stars":           repo.get("stargazers_count", 0),
-            "file":            str(score_file).replace(".score.json", ".kicad_pcb"),
-            "net_count":       score["net_count"],
-            "component_count": score["component_count"],
-            "board_w_mm":      score["board_w_mm"],
-            "board_h_mm":      score["board_h_mm"],
-            "routing_pct":     score["routing_pct"],
-            "via_count":       score["via_count"],
+            "repo":              repo["full_name"],
+            "stars":             repo.get("stargazers_count", 0),
+            "pcb_file":          str(d / (stem + ".kicad_pcb")),
+            "schematic":         _companion(".kicad_sch"),
+            "legacy_schematic":  _companion(".sch"),
+            "project":           _companion(".kicad_pro"),
+            "design_rules":      _companion(".kicad_dru"),
+            "net_count":         score["net_count"],
+            "component_count":   score["component_count"],
+            "board_w_mm":        score["board_w_mm"],
+            "board_h_mm":        score["board_h_mm"],
+            "routing_pct":       score["routing_pct"],
+            "via_count":         score["via_count"],
         })
     return entries
 
