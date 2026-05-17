@@ -407,14 +407,19 @@ def process_repo(
 
     # ── Save companion files (schematic, project, design rules) ───────────────
     saved_companions = 0
-    for file_path in comp_paths:
+    for i, file_path in enumerate(comp_paths, 1):
+        print(f"    companion [{i}/{len(comp_paths)}] {Path(file_path).name} ...",
+              end=" ", flush=True)
         content = client.download_raw(owner, name, branch, file_path)
         if content is not None:
             _save(repo_dir, file_path, content)
             saved_companions += 1
+            print("saved")
+        else:
+            print("failed")
 
     if saved_companions:
-        print(f"  saved {saved_companions} companion file(s)")
+        print(f"  saved {saved_companions}/{len(comp_paths)} companion file(s)")
 
     return len(passing)
 
