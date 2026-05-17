@@ -105,7 +105,7 @@ class GitHubClient:
         time.sleep(sleep)
         for _ in range(4):
             try:
-                resp = self._session.get(url, params=params, timeout=30)
+                resp = self._session.get(url, params=params, timeout=(10, 30))
             except requests.RequestException as exc:
                 print(f"  network error: {exc}", file=sys.stderr)
                 time.sleep(API_SLEEP * 2)
@@ -539,6 +539,7 @@ def main() -> None:
 
         try:
             passed = process_repo(client, repo, output_dir, args.dry_run)
+            print(f"  → done ({passed} saved), updating state ...")
             total_passed += passed
 
             if not args.dry_run:
