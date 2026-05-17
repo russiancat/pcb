@@ -5,10 +5,13 @@ Two panels: Top copper (F.Cu, layer 0) and Bottom copper (B.Cu, layer 1).
 Legend is placed below both panels in multiple columns so it never overlaps the board.
 """
 
+import logging
 import matplotlib.colors as mcolors
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 from router.board import Grid
 from router.netlist import Component, Net
@@ -117,7 +120,7 @@ def plot_board(grid: Grid, nets: list, router: Router,
 
     plt.savefig(save_path, dpi=150, bbox_inches="tight",
                 facecolor="#0f0f1a")
-    print(f"Saved {save_path}")
+    logger.info("Saved %s", save_path)
     plt.show()
 
 

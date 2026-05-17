@@ -11,6 +11,7 @@ For each board:
 import logging
 import math
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import matplotlib
@@ -43,6 +44,28 @@ RULES = DesignRules(
     edge_clearance_mm=0.3,
 )
 POUR_NAMES = POUR_NET_NAMES
+
+
+@dataclass(frozen=True)
+class RouteResult:
+    board: object
+    grid: Grid
+    nets: tuple
+    router: Router
+    components: tuple
+    board_w: float
+    board_h: float
+    total_nets: int
+    parts: int
+    off_board: int
+    our_routed: int
+    our_pct: float
+    our_wire_mm: float
+    our_wire_by_name: dict
+    our_vias: int
+    our_time_s: float
+    failed: tuple
+    drc: tuple
 
 BOARDS = [
     "kicad-demo/demos/multichannel/multichannel_mixer.kicad_pcb",
@@ -174,23 +197,26 @@ def route_board(path: str):
     # DRC
     drc_violations = run_drc(grid, nets, router, RULES)
 
-    return {
-        "_board":      board,
-        "_objects":    (grid, nets, router, components),
-        "board_w":     board.board_width,
-        "board_h":     board.board_height,
-        "total_nets":  len(nets),
-        "parts":       len(components),
-        "off_board":   off_board,
-        "our_routed":  routed_count,
-        "our_pct":     100.0 * routed_count / len(nets) if nets else 0,
-        "our_wire_mm": our_wire_mm,
-        "our_wire_by_name": our_wire_by_name,
-        "our_vias":    our_vias,
-        "our_time_s":  elapsed,
-        "failed":      [n.name for n in failed],
-        "drc":         drc_violations,
-    }
+    return RouteResult(
+        board=board,
+        grid=grid,
+        nets=tuple(nets),
+        router=router,
+        components=tuple(components),
+        board_w=board.board_width,
+        board_h=board.board_height,
+        total_nets=len(nets),
+        parts=len(components),
+        off_board=off_board,
+        our_routed=routed_count,
+        our_pct=100.0 * routed_count / len(nets) if nets else 0,
+        our_wire_mm=our_wire_mm,
+        our_wire_by_name=our_wire_by_name,
+        our_vias=our_vias,
+        our_time_s=elapsed,
+        failed=tuple(n.name for n in failed),
+        drc=tuple(drc_violations),
+    )
 
 
 # ------------------------------------------------------------------
@@ -215,8 +241,7 @@ def main():
                 continue
 
             # Parse existing routing for comparison
-            board      = res["_board"]
-            kid_to_name = board.nets          # kicad net_id -> name
+            kid_to_name = res.board.nets      # kicad net_id -> name
             ref_vias, ref_wire_by_name = parse_existing_routing(path, kid_to_name)
             ref_wire_total = sum(ref_wire_by_name.values())
 
@@ -226,22 +251,22 @@ def main():
             continue
 
         # ── Summary ───────────────────────────────────────────────
-        size_str = f"{res['board_w']:.0f}×{res['board_h']:.0f} mm"
-        off_note = f"  ({res['off_board']} parts off-board)" if res["off_board"] else ""
+        size_str = f"{res.board_w:.0f}×{res.board_h:.0f} mm"
+        off_note = f"  ({res.off_board} parts off-board)" if res.off_board else ""
         print(f"  Size    : {size_str}{off_note}")
-        print(f"  Nets    : {res['total_nets']}   Parts: {res['parts']}")
+        print(f"  Nets    : {res.total_nets}   Parts: {res.parts}")
         print()
 
-        ex_pct = 100.0 * len(ref_wire_by_name) / res["total_nets"] if res["total_nets"] else 0
+        ex_pct = 100.0 * len(ref_wire_by_name) / res.total_nets if res.total_nets else 0
         print(f"  {'':25s}  {'KiCad reference':>22s}    {'Our A* router':>22s}")
-        print(f"  {'Net completion':25s}  {ex_pct:>21.1f}%    {res['our_pct']:>21.1f}%")
-        print(f"  {'Total wire length':25s}  {ref_wire_total/1000:>20.2f}m    {res['our_wire_mm']/1000:>20.2f}m")
-        print(f"  {'Via count':25s}  {ref_vias:>22d}    {res['our_vias']:>22d}")
-        print(f"  {'Routing time':25s}  {'(hand/FreeRouting)':>22s}    {res['our_time_s']:>20.1f}s")
+        print(f"  {'Net completion':25s}  {ex_pct:>21.1f}%    {res.our_pct:>21.1f}%")
+        print(f"  {'Total wire length':25s}  {ref_wire_total/1000:>20.2f}m    {res.our_wire_mm/1000:>20.2f}m")
+        print(f"  {'Via count':25s}  {ref_vias:>22d}    {res.our_vias:>22d}")
+        print(f"  {'Routing time':25s}  {'(hand/FreeRouting)':>22s}    {res.our_time_s:>20.1f}s")
 
         # ── Quality score ─────────────────────────────────────────
         qr = quality_report(
-            res["our_wire_by_name"], res["our_pct"], res["our_vias"],
+            res.our_wire_by_name, res.our_pct, res.our_vias,
             ref_wire_by_name, ref_vias,
         )
         if qr:
@@ -259,7 +284,7 @@ def main():
                     print(f"    {nm:35s}  ours={ow:.1f}mm  ref={rw:.1f}mm  (+{pct:.0f}%)")
 
         # ── DRC ───────────────────────────────────────────────────
-        drc = res["drc"]
+        drc = res.drc
         opens  = [v for v in drc if v.type == ViolationType.OPEN]
         edges  = [v for v in drc if v.type == ViolationType.EDGE_CLEARANCE]
         shorts = [v for v in drc if v.type == ViolationType.SHORT_CIRCUIT]
@@ -274,22 +299,21 @@ def main():
         pad_note = "  (placement issue, not routing)" if padclr else ""
         print(f"  Pad clearance viol  : {len(padclr)}{pad_note}")
 
-        if res["failed"]:
-            print(f"  Unrouted nets: {', '.join(res['failed'][:8])}"
-                  + (" ..." if len(res["failed"]) > 8 else ""))
+        if res.failed:
+            print(f"  Unrouted nets: {', '.join(res.failed[:8])}"
+                  + (" ..." if len(res.failed) > 8 else ""))
 
         # ── Save image ────────────────────────────────────────────
         try:
-            grid, nets_obj, router_obj, comps_obj = res["_objects"]
             img_path = str(RESULTS_DIR / f"{name}.png")
             subtitle = (
                 f"{name}  |  {RULES.name}  |  "
-                f"Our: {res['our_routed']}/{res['total_nets']} nets  "
-                f"{res['our_vias']} vias  {res['our_wire_mm']/1000:.2f}m"
+                f"Our: {res.our_routed}/{res.total_nets} nets  "
+                f"{res.our_vias} vias  {res.our_wire_mm/1000:.2f}m"
                 + (f"  wire+{qr.wire_overhead_pct:+.0f}%  Q={qr.quality_index}" if qr else "")
                 + f"  ||  KiCad ref: {ref_vias} vias  {ref_wire_total/1000:.2f}m"
             )
-            plot_board(grid, nets_obj, router_obj, comps_obj,
+            plot_board(res.grid, list(res.nets), res.router, list(res.components),
                        title=subtitle, save_path=img_path)
             plt.close("all")
             print(f"  Saved {img_path}")

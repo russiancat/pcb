@@ -8,7 +8,7 @@ _RULES = HOME_ETCH.design_rules
 
 
 def _net(net_id, *xy_pairs, layer=0):
-    pads = [Pad(net_id=net_id, x=x, y=y, layer=layer) for x, y in xy_pairs]
+    pads = tuple(Pad(net_id=net_id, x=x, y=y, layer=layer) for x, y in xy_pairs)
     return Net(net_id=net_id, name=f'N{net_id}', pads=pads)
 
 

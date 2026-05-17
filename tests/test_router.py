@@ -10,7 +10,7 @@ def _pad(x, y, net_id, layer=0):
 
 def _net(net_id, *xy_pairs, layer=0):
     return Net(net_id=net_id, name=f'N{net_id}',
-               pads=[_pad(x, y, net_id, layer) for x, y in xy_pairs])
+               pads=tuple(_pad(x, y, net_id, layer) for x, y in xy_pairs))
 
 
 # ------------------------------------------------------------------

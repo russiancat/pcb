@@ -197,7 +197,7 @@ class KiCadBoard:
         bw = max(pad_xs) - min(pad_xs) + 2 * margin
         bh = max(pad_ys) - min(pad_ys) + 2 * margin
 
-        return Component(ref=ref, x=bx, y=by, width=max(bw, 1.0), height=max(bh, 1.0), pads=pads)
+        return Component(ref=ref, x=bx, y=by, width=max(bw, 1.0), height=max(bh, 1.0), pads=tuple(pads))
 
     def _read_pad(self, pad_node: list, fx: float, fy: float,
                   frot: float) -> Optional[Pad]:
@@ -258,7 +258,7 @@ class KiCadBoard:
         nets = [
             Net(net_id=nid,
                 name=self.nets.get(nid, f'net{nid}'),
-                pads=pads)
+                pads=tuple(pads))
             for nid, pads in sorted(net_pads.items())
         ]
         return nets, self.components

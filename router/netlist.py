@@ -1,8 +1,8 @@
-from dataclasses import dataclass, field
-from typing import List
+from dataclasses import dataclass
+from typing import Tuple
 
 
-@dataclass
+@dataclass(frozen=True)
 class Pad:
     net_id: int
     x: float        # mm
@@ -10,11 +10,11 @@ class Pad:
     layer: int = 0  # 0 = top copper, 1 = bottom copper
 
 
-@dataclass
+@dataclass(frozen=True)
 class Net:
     net_id: int
     name: str
-    pads: List[Pad] = field(default_factory=list)
+    pads: Tuple['Pad', ...] = ()
 
     def estimated_wirelength(self) -> float:
         """Sum of Manhattan distances between consecutive pads."""
@@ -25,11 +25,11 @@ class Net:
         return total
 
 
-@dataclass
+@dataclass(frozen=True)
 class Component:
     ref: str
     x: float        # mm, body origin
     y: float        # mm, body origin
     width: float    # mm
     height: float   # mm
-    pads: List[Pad] = field(default_factory=list)
+    pads: Tuple['Pad', ...] = ()

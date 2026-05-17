@@ -13,6 +13,8 @@ A Python proof-of-concept for AI-assisted PCB routing. Import a KiCad board file
 - Supports copper pour (GND flood fill) on any layer
 - Visualises the result as a two-panel image (top copper / bottom copper)
 - Benchmarks against the existing routing in a file — measures completion %, wire length efficiency, via count, and DRC violations
+- DRC checks: open nets, edge clearance, short circuits, pad clearance
+- Manufacturer profiles with `merge()` for strictest-wins constraint checking
 
 What it does **not** do (yet): schematic capture, auto-placement, Gerber export.
 
@@ -42,34 +44,41 @@ Legend below the board. GND copper pour shown as semi-transparent fill.
 
 ---
 
-## Design Rules Presets
+## Manufacturer Profiles
 
-| Preset | Trace width | Clearance | Via cost | Target |
-|--------|------------|-----------|----------|--------|
-| `HOME_ETCH` | 1.0 mm | 1.0 mm | High | Toner transfer / UV home etching |
-| `LOCAL_FAB_BASIC` | 0.5 mm | 0.5 mm | Medium | Local fab, older equipment |
-| `LOCAL_FAB_MODERN` | 0.3 mm | 0.3 mm | Medium | Local fab, modern equipment |
-| `HOBBYIST_ONLINE` | 0.25 mm | 0.25 mm | Low | JLCPCB / PCBWay hobbyist |
-| `PROFESSIONAL` | 0.127 mm | 0.127 mm | Low | Tight professional specs |
+Profiles live in `router/profiles/*.toml`. Add a new manufacturer by adding one `.toml` file — no Python code needed.
 
-Default is `LOCAL_FAB_BASIC`. Change `RULES` at the top of `kicad_demo.py`.
+| Profile | Trace / Clearance | Via drill | Via cost | Target |
+|---------|------------------|-----------|----------|--------|
+| `HOME_ETCH` | 1.0 mm | 0.8 mm | High | Toner transfer / UV home etching |
+| `PCBWAY_2L` | 0.127 mm | 0.3 mm | Low | PCBWay 2-layer standard |
+| `PCBWAY_4L` | 0.1 mm | 0.2 mm | Low | PCBWay 4-layer advanced |
+| `JLCPCB_2L` | 0.127 mm | 0.3 mm | Low | JLCPCB 2-layer standard |
+| `JLCPCB_4L` | 0.1 mm | 0.2 mm | Low | JLCPCB 4-layer advanced |
+| `ZBOTIC_2L` | 0.15 mm | 0.3 mm | Low | ZBOTIC 2-layer |
+| `ZBOTIC_4L` | 0.1 mm | 0.2 mm | Low | ZBOTIC 4-layer |
+
+Change `PROFILE` at the top of `kicad_demo.py` to target a different fab.  
+Use `ManufacturerProfile.merge(a, b)` to combine constraints (strictest-wins).
 
 ---
 
 ## Benchmark Results
 
-Tested against 8 KiCad demo boards using the same component placements but routing from scratch.
+Tested against KiCad demo boards using the same component placements, routing from scratch with a 0.5 mm benchmark grid (speed-optimised — use a manufacturer profile for real DRC).
 
-| Board | Nets | Our completion | Wire vs reference |
-|-------|------|---------------|-------------------|
-| multichannel_mixer | 80 | 98.8% | **−8.2% shorter** |
-| complex_hierarchy | 52 | 96.2% | **−21.3% shorter** |
-| ecc83-pp | 13 | 69.2% | **−23.5% shorter** |
-| interf_u | 173 | 59.0% | −9.3% shorter |
-| CM5_MINIMA | 220 | 18.6% | (dense board, needs global routing) |
-| tinytapeout | 114 | 52.6% | (296 parts, high density) |
+| Board | Nets | Our routed | Our unrouted | KiCad routed | KiCad unrouted | Wire vs KiCad | Shorts | Quality |
+|-------|------|-----------|-------------|-------------|---------------|---------------|--------|---------|
+| multichannel_mixer | 80 | 79 (98.8%) | 1 | 79 (98.8%) | 1 | −7.0% shorter | ✓ | 75.9 |
+| complex_hierarchy | 52 | 50 (96.2%) | 2 | 49 (94.2%) | 3 | −22.6% shorter | ✓ | 76.9 |
+| ecc83-pp | 13 | 9 (69.2%) | 4 | 8 (61.5%) | 5 | −23.5% shorter | ✓ | 55.4 |
+| ecc83-pp_v2 | 13 | 9 (69.2%) | 4 | 9 (69.2%) | 4 | −26.3% shorter | ✓ | 55.4 |
+| interf_u | 173 | 102 (59.0%) | 71 | 110 (63.6%) | 63 | −8.2% shorter | ✓ | 47.2 |
+| tinytapeout | 114 | 71 (62.3%) | 43 | 108 (94.7%) | 6 | −18.8% shorter | ✓ | 49.8 |
+| pic_programmer | 111 | 34 (30.6%) | 77 | 0 (0%) | 111 | n/a | ✓ | — |
+| CM5_MINIMA_3 | 220 | 47 (21.4%) | 173 | 96 (43.6%) | 124 | −14.6% shorter | ✓ | 17.1 |
 
-On nets we complete, our A* consistently produces **shorter wire than the human/FreeRouting reference**. Dense boards are limited by the lack of a global routing stage.
+**Zero short circuits on every board.** On nets we complete, our A* consistently produces shorter wire than the human/FreeRouting reference. Dense boards (CM5, tinytapeout) are limited by routing capacity — they need a finer grid (0.127 mm) or layer-aware global routing to improve completion.
 
 ---
 
@@ -82,14 +91,43 @@ On nets we complete, our A* consistently produces **shorter wire than the human/
         - EMPTY / OBSTACLE / net_id per cell
         - Edge keepout applied as obstacle border
         - Clearance enforced at query time (numpy slice)
+    → GlobalRouter (tile-level congestion planning → cost_map)
     → Router
         - MST pad ordering (Prim's) — trunk-and-branch topology
         - A* pathfinding — 8-directional, via support
         - Rip-and-retry for failed nets
         - Copper pour (BFS flood-fill) for GND nets
-    → Benchmark / DRC
-        - Net completion, wire length, via count vs reference
-        - DRC: open nets, edge clearance, short circuits
+    → DRC (open nets, edge clearance, short circuits, pad clearance)
+    → Benchmark / quality scoring vs KiCad reference
+```
+
+---
+
+## File Structure
+
+```
+router/
+  board.py              Grid class — 2D numpy array per layer
+  astar.py              A* pathfinding — 8-directional, via support
+  router.py             Router — MST ordering, rip-and-retry, copper pour
+  global_router.py      Tile-level congestion planning and cost map
+  netlist.py            Pad / Net / Component frozen dataclasses
+  design_rules.py       DesignRules dataclass (fields only — no presets)
+  manufacturer_profile.py  ManufacturerProfile, load_all_profiles(), merge()
+  drc.py                ViolationType, DRCViolation, run_drc(), check_profile_compatibility()
+  quality.py            QualityReport, quality_report()
+  kicad_parser.py       .kicad_pcb parser (KiCad 7/8 + 10)
+  profiles/             Manufacturer specs as TOML files (one file per fab)
+  __init__.py           POUR_NET_NAMES frozenset
+visualize.py            Two-panel matplotlib visualisation (F.Cu / B.Cu)
+kicad_demo.py           Route a single board from a .kicad_pcb file
+benchmark.py            Benchmark all demo boards, compare vs KiCad reference
+demo.py                 Synthetic 5-net demo board
+tests/                  pytest test suite
+results/                Benchmark output images
+kicad-demo/             KiCad demo boards (local copy)
+data/                   Synthetic test boards
+CLAUDE.md               Project context for AI assistant sessions
 ```
 
 ---
@@ -99,12 +137,15 @@ On nets we complete, our A* consistently produces **shorter wire than the human/
 ### Phase 1 — Router improvements (current)
 - [x] A* routing with 2-layer via support
 - [x] MST trunk-and-branch for multi-pin nets
+- [x] Global routing (tile congestion map)
 - [x] Copper pour (GND flood fill)
 - [x] Edge keepout enforcement
 - [x] Benchmark + quality scoring vs KiCad reference
-- [ ] Fix short circuits on dense boards (rip-and-retry partial trace cleanup)
-- [ ] Zone-based global routing (tile overlay for dense boards)
+- [x] DRC: open nets, edge clearance, short circuits, pad clearance
+- [x] Manufacturer profiles (TOML, merge, check_profile_compatibility)
 - [ ] Power net spine routing (dedicated trunk for VCC/vbias)
+- [ ] Layer-aware global routing (assign nets to preferred layers)
+- [ ] Negotiated congestion (PathFinder-style)
 
 ### Phase 2 — GNN-assisted routing
 - [ ] Collect training data (KiCad boards from public repos)
@@ -120,29 +161,8 @@ On nets we complete, our A* consistently produces **shorter wire than the human/
 - [ ] Web frontend (all routing in browser via WASM or API)
 - [ ] Auth + S3 storage (no DB)
 - [ ] Board size restriction for free tier
-- [ ] Gerber export
-
----
-
-## File Structure
-
-```
-router/
-  board.py          Grid class
-  astar.py          A* pathfinding
-  router.py         Router (MST, copper pour, rip-and-retry)
-  netlist.py        Pad / Net / Component data classes
-  design_rules.py   DesignRules presets
-  kicad_parser.py   .kicad_pcb parser (KiCad 7/8 + 10)
-visualize.py        Two-panel matplotlib visualisation
-kicad_demo.py       Route a single board
-benchmark.py        Benchmark all demo boards
-demo.py             Synthetic 5-net demo
-results/            Benchmark output images
-kicad-demo/         KiCad demo boards (local copy)
-data/               Synthetic test boards
-CLAUDE.md           Project context for AI assistant sessions
-```
+- [ ] KiCad export: write routed traces as `(segment ...)` / `(via ...)` nodes
+- [ ] Gerber export (RS-274X native generator)
 
 ---
 

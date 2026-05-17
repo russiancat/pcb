@@ -30,7 +30,7 @@ router/
   router.py         Router — MST ordering, trunk-and-branch, rip-and-retry, copper pour
   global_router.py  GlobalRouter — tile-level congestion planning, cost_map
   netlist.py        Data classes: Pad, Net, Component
-  design_rules.py   DesignRules presets (HOME_ETCH → PROFESSIONAL)
+  design_rules.py   DesignRules dataclass only — no presets
   drc.py            ViolationType enum, DRCViolation dataclass, run_drc()
   quality.py        QualityReport dataclass, quality_report()
   kicad_parser.py   Parses .kicad_pcb files — handles KiCad 7/8 and KiCad 10 formats
@@ -93,15 +93,21 @@ data/               Synthetic test boards
 - `POUR_NET_NAMES = {'GND', 'AGND', 'DGND', 'PGND', 'GND_ANALOG', 'GND_DIGITAL'}`
 - Pour masks stored in `router.pour_masks[net_id][layer]` (bool numpy array)
 
-### Design Rules Presets
-```python
-HOME_ETCH        resolution=1.0mm  clearance=1.0mm  via_cost=25.0  (default for home etchers)
-LOCAL_FAB_BASIC  resolution=0.5mm  clearance=0.5mm  via_cost=8.0
-LOCAL_FAB_MODERN resolution=0.3mm  clearance=0.3mm  via_cost=5.0
-HOBBYIST_ONLINE  resolution=0.25mm clearance=0.25mm via_cost=4.0   (JLCPCB/PCBWay)
-PROFESSIONAL     resolution=0.127mm clearance=0.127mm via_cost=3.0
+### Manufacturer Profiles
+Loaded from `router/profiles/*.toml` at import time (Python 3.11+ `tomllib`, zero extra deps).
+Named constants in `router/manufacturer_profile.py`:
 ```
-Via cost is per-preset because vias are genuinely expensive for home etching (hand-drilled) but nearly free at online fabs.
+HOME_ETCH    resolution=1.0mm  clearance=1.0mm  via_cost=25.0  (home etching)
+PCBWAY_2L    resolution=0.127mm clearance=0.127mm via_cost=4.0  (PCBWay 2-layer)
+PCBWAY_4L    resolution=0.1mm  clearance=0.1mm  via_cost=3.0   (PCBWay 4-layer)
+JLCPCB_2L   resolution=0.127mm clearance=0.127mm via_cost=4.0  (JLCPCB 2-layer)
+JLCPCB_4L   resolution=0.1mm  clearance=0.1mm  via_cost=3.0   (JLCPCB 4-layer)
+ZBOTIC_2L   resolution=0.15mm clearance=0.15mm  via_cost=4.0  (ZBOTIC 2-layer)
+ZBOTIC_4L   resolution=0.1mm  clearance=0.1mm  via_cost=3.0   (ZBOTIC 4-layer)
+```
+Via cost is per-profile: hand-drilled vias (home etch) are expensive; machine-drilled vias at online fabs are nearly free.
+Add a new manufacturer by adding a `.toml` file to `router/profiles/` — no Python code needed.
+Use `ManufacturerProfile.merge(a, b)` for strictest-wins constraint merging.
 
 ### KiCad Parser
 - Handles both KiCad 7/8 (`(net 1 "VCC")` numeric IDs) and KiCad 10 (`(net "VCC")` name-only)
@@ -127,7 +133,7 @@ Key observations:
 - **Zero short circuits on every board** — routing is electrically clean.
 - On nets we complete, **our wire is consistently shorter** than human/FreeRouting.
 - CM5 and tinytapeout use far fewer vias than KiCad (0.21× and 0.24×) — KiCad switches layers aggressively; our via_cost=8 discourages this. Dense boards need lower via cost.
-- CM5: 96 hot tiles (max_cong=20, cap=5) — physically too dense at 0.5mm resolution. Needs finer grid (HOBBYIST_ONLINE) or layer-aware zone planning.
+- CM5: 96 hot tiles (max_cong=20, cap=5) — physically too dense at 0.5mm resolution. Needs finer grid (JLCPCB_2L/PCBWAY_2L at 0.127mm) or layer-aware zone planning.
 
 ## DRC Checks Implemented
 
@@ -145,7 +151,7 @@ Filter by `v.type == ViolationType.SHORT_CIRCUIT` — never string-match on `str
 ## Known Issues / Next Steps
 
 ### Routing quality improvements (ordered by impact)
-1. **Lower via cost for dense boards** — CM5/tinytapeout use 0.2× reference via count. KiCad switches layers freely; our via_cost=8 prevents that. Try via_cost=3-4 for HOBBYIST_ONLINE or pass via_cost as a tunable parameter.
+1. **Lower via cost for dense boards** — CM5/tinytapeout use 0.2× reference via count. KiCad switches layers freely; our via_cost=8 prevents that. Try via_cost=3-4 (JLCPCB_4L/PCBWAY_4L profiles) or pass via_cost as a tunable parameter.
 2. **Power net trunk / spine routing** — vbias routes 498% longer than reference. Needs a dedicated "route a spine trace across the board, then branch to each pad" strategy before the general A* pass.
 3. **Layer-aware global routing** — current GlobalRouter doesn't distinguish layers. Assigning nets to preferred layers (F.Cu vs B.Cu) in the global pass would reduce layer-switch overhead and free up more space.
 4. **Negotiated congestion (PathFinder)** — allow temporary overlaps during routing, then resolve conflicts iteratively with cost inflation. Proven to route boards that greedy A* cannot.
