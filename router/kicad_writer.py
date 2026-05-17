@@ -8,10 +8,13 @@ KiCad's zone format and are deferred to Phase 2.
 import logging
 import uuid
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import TYPE_CHECKING, Dict, List, Tuple
 
 from .board import Grid
 from .design_rules import DesignRules
+
+if TYPE_CHECKING:
+    from .router import Router
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +23,10 @@ _LAYER_NAMES: Dict[int, str] = {0: "F.Cu", 1: "B.Cu"}
 
 @dataclass(frozen=True)
 class _Segment:
-    x1: float; y1: float
-    x2: float; y2: float
+    x1: float
+    y1: float
+    x2: float
+    y2: float
     layer_name: str
     width: float
     net_id: int
@@ -29,7 +34,8 @@ class _Segment:
 
 @dataclass(frozen=True)
 class _Via:
-    x: float; y: float
+    x: float
+    y: float
     size: float
     drill: float
     net_id: int
@@ -43,7 +49,7 @@ class KiCadWriter:
     file.  The source file is never modified.
     """
 
-    def __init__(self, grid: Grid, router, rules: DesignRules,
+    def __init__(self, grid: Grid, router: 'Router', rules: DesignRules,
                  origin_x: float = 0.0, origin_y: float = 0.0):
         self._segments = self._build_segments(
             grid, router.routed, rules, origin_x, origin_y

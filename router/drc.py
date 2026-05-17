@@ -6,9 +6,11 @@ import numpy as np
 
 from .board import Grid
 from .design_rules import DesignRules
+from .netlist import Net
 
 if TYPE_CHECKING:
     from .manufacturer_profile import ManufacturerProfile
+    from .router import Router
 
 
 class ViolationType(Enum):
@@ -33,7 +35,7 @@ class DRCViolation:
         return f"{self.type.name}: {self.description}"
 
 
-def run_drc(grid: Grid, nets: list, router, rules: DesignRules) -> List[DRCViolation]:
+def run_drc(grid: Grid, nets: List[Net], router: 'Router', rules: DesignRules) -> List[DRCViolation]:
     """
     Post-route grid DRC. Returns typed violations:
       OPEN           — unrouted net
@@ -58,19 +60,27 @@ def run_drc(grid: Grid, nets: list, router, rules: DesignRules) -> List[DRCViola
     ec = max(1, round(rules.edge_clearance_mm / rules.resolution_mm))
     g = grid.grid
     rows, cols = grid.rows, grid.cols
+
+    # Boolean mask for cells inside the edge keepout band
+    edge_mask = np.zeros((rows, cols), dtype=bool)
+    edge_mask[:ec, :] = True
+    edge_mask[rows - ec:, :] = True
+    edge_mask[:, :ec] = True
+    edge_mask[:, cols - ec:] = True
+
     for layer in range(grid.num_layers):
         layer_grid = g[layer]
-        for r in range(rows):
-            for c in range(cols):
-                cell = layer_grid[r, c]
-                if cell <= 0 or cell in pour_ids or grid.is_pad_cell(layer, r, c):
-                    continue
-                if r < ec or r >= rows - ec or c < ec or c >= cols - ec:
-                    x, y = grid.grid_to_mm(c, r)
-                    violations.append(DRCViolation(
-                        ViolationType.EDGE_CLEARANCE,
-                        f"net {cell} trace at ({x:.1f},{y:.1f})mm layer {layer}",
-                    ))
+        # Candidates: any positive net_id inside the edge band
+        rr, cc = np.where(edge_mask & (layer_grid > 0))
+        for r, c in zip(rr.tolist(), cc.tolist()):
+            cell = int(layer_grid[r, c])
+            if cell in pour_ids or grid.is_pad_cell(layer, r, c):
+                continue
+            x, y = grid.grid_to_mm(c, r)
+            violations.append(DRCViolation(
+                ViolationType.EDGE_CLEARANCE,
+                f"net {cell} trace at ({x:.1f},{y:.1f})mm layer {layer}",
+            ))
 
     def _classify_adj(layer: int, r1: int, c1: int, r2: int, c2: int) -> None:
         net_a = g[layer, r1, c1]

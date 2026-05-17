@@ -6,7 +6,7 @@ from typing import Dict, Optional, Tuple
 class QualityReport:
     matched_nets: int
     wire_overhead_pct: float
-    worse_nets: Tuple       # top-5 (net_name, our_mm, ref_mm, pct_over)
+    worse_nets: Tuple[Tuple[str, float, float, float], ...]
     better_nets_count: int
     via_ratio: Optional[float]
     quality_index: float

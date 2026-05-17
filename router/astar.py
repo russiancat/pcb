@@ -67,13 +67,13 @@ def _neighbors(grid: Grid, col: int, row: int, layer: int,
         yield nc, nr, layer, cost
 
 
-def astar(grid: Grid,
-          start: Tuple[int, int, int],
-          end_col: int, end_row: int,
-          net_id: int,
-          via_cost: float = 20.0,
-          clearance_cells: int = 0,
-          cost_map=None) -> Optional[List[Tuple]]:
+def _astar(grid: Grid,
+           start: Tuple[int, int, int],
+           end_col: int, end_row: int,
+           net_id: int,
+           via_cost: float = 20.0,
+           clearance_cells: int = 0,
+           cost_map=None) -> Optional[List[Tuple]]:
     """
     Route from start=(col, row, layer) to (end_col, end_row) on any layer.
 
@@ -145,13 +145,13 @@ def astar(grid: Grid,
     return None
 
 
-def astar_to_net(grid: Grid,
-                 start: Tuple[int, int, int],
-                 ref_points: List[Tuple[int, int]],
-                 net_id: int,
-                 via_cost: float = 20.0,
-                 clearance_cells: int = 0,
-                 cost_map=None) -> Optional[List[Tuple]]:
+def _astar_to_net(grid: Grid,
+                  start: Tuple[int, int, int],
+                  ref_points: List[Tuple[int, int]],
+                  net_id: int,
+                  via_cost: float = 20.0,
+                  clearance_cells: int = 0,
+                  cost_map=None) -> Optional[List[Tuple]]:
     """
     Route from start to any existing cell already marked with net_id.
     Used to connect the 3rd, 4th, ... pin to the existing trace tree.

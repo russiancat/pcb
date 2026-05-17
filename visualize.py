@@ -6,16 +6,17 @@ Legend is placed below both panels in multiple columns so it never overlaps the 
 """
 
 import logging
+
 import matplotlib.colors as mcolors
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 
-logger = logging.getLogger(__name__)
-
 from router.board import Grid
 from router.netlist import Component, Net
 from router.router import Router
+
+logger = logging.getLogger(__name__)
 
 NET_COLORS = [
     "#e74c3c",  # red

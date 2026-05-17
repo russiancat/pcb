@@ -6,7 +6,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from .astar import astar, astar_to_net
+from .astar import _astar, _astar_to_net
 from .board import EMPTY, Grid
 from .design_rules import DesignRules
 from .global_router import GlobalRouter
@@ -122,9 +122,9 @@ class Router:
         all_vias:  List[Tuple[int, int]] = []
 
         start = (pad_grid[0][0], pad_grid[0][1], pads[0].layer)
-        path  = astar(self.grid, start,
-                      pad_grid[1][0], pad_grid[1][1],
-                      net.net_id, self.via_cost, cc, cost_map)
+        path  = _astar(self.grid, start,
+                       pad_grid[1][0], pad_grid[1][1],
+                       net.net_id, self.via_cost, cc, cost_map)
         if path is None:
             return False
         all_vias.extend(self._mark_path(path, net.net_id))
@@ -132,7 +132,7 @@ class Router:
 
         for i in range(2, len(pads)):
             new_start = (pad_grid[i][0], pad_grid[i][1], pads[i].layer)
-            path = astar_to_net(self.grid, new_start,
+            path = _astar_to_net(self.grid, new_start,
                                 pad_grid[:i], net.net_id,
                                 self.via_cost, cc, cost_map)
             if path is None:

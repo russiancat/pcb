@@ -1,5 +1,5 @@
 from router.board import Grid
-from router.astar import astar, astar_to_net
+from router.astar import _astar as astar, _astar_to_net as astar_to_net
 
 
 def make_grid(w=10.0, h=10.0, res=1.0, layers=2):

@@ -157,11 +157,15 @@ Filter by `v.type == ViolationType.SHORT_CIRCUIT` — never string-match on `str
 3. **Layer-aware global routing** — current GlobalRouter doesn't distinguish layers. Assigning nets to preferred layers (F.Cu vs B.Cu) in the global pass would reduce layer-switch overhead and free up more space.
 4. **Negotiated congestion (PathFinder)** — allow temporary overlaps during routing, then resolve conflicts iteratively with cost inflation. Proven to route boards that greedy A* cannot.
 
+### Code architecture (known debt)
+5. **`KiCadBoard` two-phase construction** (`kicad_parser.py`) — `_name_to_id` and `_next_id` are parse-time state leaked as dataclass fields. Violates "constructors build complete objects." Fix: move parse state into a `_Parser` inner class that returns an immutable `KiCadBoard`.
+6. **A* code duplication** — `_astar` and `_astar_to_net` in `astar.py` share ~70% of the same loop body. `GlobalRouter._tile_astar` re-implements A* a third time. Consolidate behind a shared `_run_astar(stop_condition)` closure to eliminate the duplication.
+
 ### Architecture / ML
-6. **GNN for net ordering + strategy selection** — input: netlist graph + placement, output: strategy tag per net + routing order
-7. **GNN for auto-placement** — predict component positions from netlist graph. Training data: KiCad boards with coordinates.
-8. **RL training loop** — benchmark score becomes reward function: `Q = completion × wire_efficiency × via_efficiency`
-9. **Zone decomposition** — GNN predicts coarse tile assignment, A* does detailed routing within constraints
+7. **GNN for net ordering + strategy selection** — input: netlist graph + placement, output: strategy tag per net + routing order
+8. **GNN for auto-placement** — predict component positions from netlist graph. Training data: KiCad boards with coordinates.
+9. **RL training loop** — benchmark score becomes reward function: `Q = completion × wire_efficiency × via_efficiency`
+10. **Zone decomposition** — GNN predicts coarse tile assignment, A* does detailed routing within constraints
 
 ### Product
 10. **Web frontend** — backend: auth + storage (S3, no DB). All routing in browser.
