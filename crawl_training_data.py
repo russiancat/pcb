@@ -181,9 +181,12 @@ class GitHubClient:
                f"{owner}/{repo}/{branch}/{path}")
         time.sleep(API_SLEEP)
         try:
-            resp = self._session.get(url, timeout=60)
+            # timeout=(connect_secs, read_secs) — read timeout applies per chunk,
+            # so a stalled transfer is abandoned after 30s of inactivity.
+            resp = self._session.get(url, timeout=(10, 30))
             return resp.content if resp.status_code == 200 else None
-        except requests.RequestException:
+        except requests.RequestException as exc:
+            print(f"    download error: {exc}")
             return None
 
 
@@ -353,8 +356,11 @@ def process_repo(
     name   = repo["name"]
     branch = repo.get("default_branch") or client.default_branch(owner, name)
 
+    MAX_FILE_BYTES = 5 * 1024 * 1024   # skip files >5MB (font/art PCBs etc.)
+
     tree       = client.get_tree(owner, name, branch)
-    blobs      = [f for f in tree if f.get("type") == "blob"]
+    blobs      = [f for f in tree
+                  if f.get("type") == "blob" and f.get("size", 0) <= MAX_FILE_BYTES]
     pcb_paths  = [f["path"] for f in blobs if f["path"].endswith(".kicad_pcb")]
     comp_paths = [f["path"] for f in blobs
                   if Path(f["path"]).suffix in COMPANION_EXTENSIONS]
@@ -377,14 +383,15 @@ def process_repo(
     passing: List[Tuple[str, bytes, dict]] = []   # (repo_path, content, score)
 
     for file_path in pcb_paths:
+        print(f"    downloading {Path(file_path).name} ...", end=" ", flush=True)
         content = client.download_raw(owner, name, branch, file_path)
         if content is None:
-            print(f"    skip (download failed): {Path(file_path).name}")
+            print("failed")
             continue
 
         score  = _score_with_timeout(content)
         status = "✓" if score["passes"] else f"✗  {score['reason']}"
-        print(f"    {Path(file_path).name}: {score['net_count']} nets, "
+        print(f"{score['net_count']} nets, "
               f"{score['routing_pct']:.0f}% routed — {status}")
 
         if score["passes"]:
