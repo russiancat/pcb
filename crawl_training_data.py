@@ -45,6 +45,7 @@ import os
 import sys
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as _TimeoutError
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -69,7 +70,8 @@ MIN_NETS          = 5      # ignore trivial or symbol-only boards
 MIN_ROUTING_PCT   = 75.0   # existing segments must cover ≥75% of nets
 MIN_BOARD_MM      = 10.0   # filter out sub-centimetre test fixtures
 MAX_BOARD_MM      = 500.0  # filter out panel / array boards
-MAX_UNPLACED_PCT  = 20.0   # max % of components allowed outside board boundary
+MAX_UNPLACED_PCT   = 20.0  # max % of components allowed outside board boundary
+FILE_TIMEOUT_SECS  = 30.0  # per-file parse+score timeout (download has its own 60s)
 
 # ── Rate-limiting ─────────────────────────────────────────────────────────────
 
@@ -302,6 +304,23 @@ def _score_from_bytes(content: bytes) -> dict:
         Path(tmp_path_str).unlink(missing_ok=True)
 
 
+def _score_with_timeout(content: bytes) -> dict:
+    """Score with a per-file timeout; returns a failing score on timeout."""
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(_score_from_bytes, content)
+        try:
+            return future.result(timeout=FILE_TIMEOUT_SECS)
+        except _TimeoutError:
+            return {
+                "file": "", "passes": False,
+                "reason": f"timed out after {FILE_TIMEOUT_SECS:.0f}s",
+                "net_count": 0, "component_count": 0,
+                "board_w_mm": 0.0, "board_h_mm": 0.0,
+                "routed_nets": 0, "routing_pct": 0.0,
+                "via_count": 0, "off_board_components": 0,
+            }
+
+
 def _save(repo_dir: Path, repo_path: str, content: bytes) -> Path:
     """Save content preserving its original path relative to the repo root."""
     dest = repo_dir / repo_path
@@ -355,7 +374,7 @@ def process_repo(
             print(f"    skip (download failed): {Path(file_path).name}")
             continue
 
-        score  = _score_from_bytes(content)
+        score  = _score_with_timeout(content)
         status = "✓" if score["passes"] else f"✗  {score['reason']}"
         print(f"    {Path(file_path).name}: {score['net_count']} nets, "
               f"{score['routing_pct']:.0f}% routed — {status}")
@@ -497,15 +516,18 @@ def main() -> None:
         stars      = repo.get("stargazers_count", 0)
         print(f"\n[{processed}] {full_name}  ★{stars}")
 
+        # Mark as visited before starting — prevents retry if Ctrl+C mid-repo
+        if not args.dry_run:
+            visited[full_name] = {"visited_at": time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                                               time.gmtime())}
+            visited_path.write_text(json.dumps(visited, indent=2))
+
         try:
             passed = process_repo(client, repo, output_dir, args.dry_run)
             total_passed += passed
 
             if not args.dry_run:
-                visited[full_name] = {
-                    "visited_at":   time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                    "files_passed": passed,
-                }
+                visited[full_name]["files_passed"] = passed
                 visited_path.write_text(json.dumps(visited, indent=2))
 
                 if passed:
@@ -523,10 +545,7 @@ def main() -> None:
         except Exception as exc:
             print(f"  ERROR: {exc}")
             if not args.dry_run:
-                visited[full_name] = {
-                    "visited_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                    "error":      str(exc),
-                }
+                visited[full_name]["error"] = str(exc)
                 visited_path.write_text(json.dumps(visited, indent=2))
 
     # ── Summary ───────────────────────────────────────────────────────────────
