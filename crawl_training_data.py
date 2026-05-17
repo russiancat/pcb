@@ -305,20 +305,28 @@ def _score_from_bytes(content: bytes) -> dict:
 
 
 def _score_with_timeout(content: bytes) -> dict:
-    """Score with a per-file timeout; returns a failing score on timeout."""
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(_score_from_bytes, content)
-        try:
-            return future.result(timeout=FILE_TIMEOUT_SECS)
-        except _TimeoutError:
-            return {
-                "file": "", "passes": False,
-                "reason": f"timed out after {FILE_TIMEOUT_SECS:.0f}s",
-                "net_count": 0, "component_count": 0,
-                "board_w_mm": 0.0, "board_h_mm": 0.0,
-                "routed_nets": 0, "routing_pct": 0.0,
-                "via_count": 0, "off_board_components": 0,
-            }
+    """
+    Score with a per-file timeout; returns a failing score on timeout.
+
+    Uses shutdown(wait=False) so a stuck parser thread is abandoned rather
+    than blocking the main crawler — the `with` form calls shutdown(wait=True)
+    on exit which would re-block us on the very thread we timed out.
+    """
+    pool   = ThreadPoolExecutor(max_workers=1)
+    future = pool.submit(_score_from_bytes, content)
+    try:
+        return future.result(timeout=FILE_TIMEOUT_SECS)
+    except _TimeoutError:
+        return {
+            "file": "", "passes": False,
+            "reason": f"timed out after {FILE_TIMEOUT_SECS:.0f}s",
+            "net_count": 0, "component_count": 0,
+            "board_w_mm": 0.0, "board_h_mm": 0.0,
+            "routed_nets": 0, "routing_pct": 0.0,
+            "via_count": 0, "off_board_components": 0,
+        }
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 def _save(repo_dir: Path, repo_path: str, content: bytes) -> Path:
