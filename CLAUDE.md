@@ -151,7 +151,8 @@ Key observations:
 10. **Web frontend** — backend: auth + storage (S3, no DB). All routing in browser.
 11. **Board size restriction** for free tier
 12. **Copper fills UI** — pour is implemented in router, needs UI exposure
-13. **Export** — generate Gerber files from routed grid
+13. **Export — Phase 1 (now)**: write routed traces back into the original `.kicad_pcb` file as `(segment ...)` / `(via ...)` nodes → user opens in KiCad → File → Plot → Gerbers → ZIP → upload to fab. Requires KiCad but zero new format complexity.
+14. **Export — Phase 2 (web product)**: build a native Gerber generator (RS-274X). Web users won't have KiCad. Minimum files: `F.Cu.gbr`, `B.Cu.gbr`, `Edge.Cuts.gbr`, `drill.drl` (Excellon). One week of careful work — soldermask openings, aperture definitions, pad shapes all need handling. Do this when building the web frontend.
 
 ## What NOT to Do
 - Don't mark component body obstacles — they wall in pads. Use courtyard data when available.
