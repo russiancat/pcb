@@ -14,7 +14,7 @@ Changing the preset changes:
 from dataclasses import dataclass
 
 
-@dataclass
+@dataclass(frozen=True)
 class DesignRules:
     name: str
     # Grid resolution also sets the trace width (1 cell = 1 trace width)

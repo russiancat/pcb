@@ -6,8 +6,11 @@ Usage:
     python kicad_demo.py path/to/your.kicad_pcb  # your own file
 """
 
+import logging
 import sys
 import time
+
+logging.basicConfig(level=logging.INFO, format="  %(message)s")
 
 from router import POUR_NET_NAMES
 from router.board import Grid

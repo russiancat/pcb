@@ -1,4 +1,5 @@
 import heapq
+import logging
 import math
 from collections import deque
 from typing import Dict, List, Optional, Tuple
@@ -11,54 +12,7 @@ from .design_rules import DesignRules, HOME_ETCH
 from .global_router import GlobalRouter
 from .netlist import Net
 
-
-def _mst_pad_order(pads) -> List[int]:
-    """Return pad indices in Prim's MST order (Euclidean distance).
-
-    The first two indices form the shortest-distance initial edge.
-    Each subsequent index is the unconnected pad closest to any pad
-    already in the tree — minimising the total trunk wire length.
-    """
-    n = len(pads)
-    if n <= 2:
-        return list(range(n))
-
-    pos = [(p.x, p.y) for p in pads]
-
-    # Seed: the two closest pads
-    best = float('inf')
-    seed_i, seed_j = 0, 1
-    for i in range(n):
-        for j in range(i + 1, n):
-            d = math.hypot(pos[i][0] - pos[j][0], pos[i][1] - pos[j][1])
-            if d < best:
-                best, seed_i, seed_j = d, i, j
-
-    in_tree = [False] * n
-    in_tree[seed_i] = True
-    in_tree[seed_j] = True
-    order = [seed_i, seed_j]
-
-    # Priority queue: (distance, candidate_index)
-    heap: List = []
-    for k in range(n):
-        if not in_tree[k]:
-            for seed in (seed_i, seed_j):
-                d = math.hypot(pos[seed][0] - pos[k][0], pos[seed][1] - pos[k][1])
-                heapq.heappush(heap, (d, k))
-
-    while heap and len(order) < n:
-        dist, k = heapq.heappop(heap)
-        if in_tree[k]:
-            continue
-        in_tree[k] = True
-        order.append(k)
-        for j in range(n):
-            if not in_tree[j]:
-                d = math.hypot(pos[k][0] - pos[j][0], pos[k][1] - pos[j][1])
-                heapq.heappush(heap, (d, j))
-
-    return order
+logger = logging.getLogger(__name__)
 
 
 class Router:
@@ -66,11 +20,11 @@ class Router:
     Routes all nets on a Grid using A* with rip-and-retry.
 
     Strategy:
-      1. Sort nets by estimated wirelength (shortest first).
-      2. Route each net sequentially, connecting pads one at a time.
-         - First two pads  : astar() to explicit target.
-         - Additional pads : astar_to_net() to connect to existing trace tree.
-      3. Collect failed nets, rip them up, retry up to max_iterations times.
+      1. Global routing pass — tile-level congestion map, nets ordered
+         least-congested first (or use injected order for GNN integration).
+      2. Detailed A* pass guided by congestion cost map.
+      3. Rip-and-retry — failed nets retry up to max_iterations times
+         with progressively halved congestion penalty.
 
     Design rules (clearance, via cost) come from a DesignRules preset.
     """
@@ -78,30 +32,70 @@ class Router:
     def __init__(self, grid: Grid, nets: List[Net],
                  rules: DesignRules = HOME_ETCH,
                  max_iterations: int = 3,
-                 tile_size_mm: float = 5.0,
-                 verbose: bool = True):
+                 tile_size_mm: float = 5.0):
         self.grid = grid
         self.nets = nets
         self.rules = rules
         self.max_iterations = max_iterations
         self.tile_size_mm = tile_size_mm
-        self.verbose = verbose
-
-        # Via cost from design rules — tuned per manufacturing process.
         self.via_cost = rules.via_cost
 
-        # net_id -> list of path segments, each is a list of (col, row, layer)
         self.routed: Dict[int, List[List[Tuple]]] = {}
-        # net_id -> list of via positions (col, row)
         self.vias: Dict[int, List[Tuple[int, int]]] = {}
-        # net_id -> {layer -> bool mask of poured cells}
         self.pour_masks: Dict[int, Dict[int, np.ndarray]] = {}
 
-        # Set after route_all() for inspection
         self.global_router: Optional[GlobalRouter] = None
         self._cost_map = None
 
     # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _mst_pad_order(pads) -> List[int]:
+        """Return pad indices in Prim's MST order (Euclidean distance).
+
+        Seeds with the two closest pads, then greedily adds each remaining
+        pad nearest to any pad already in the tree.
+        """
+        n = len(pads)
+        if n <= 2:
+            return list(range(n))
+
+        pos = [(p.x, p.y) for p in pads]
+
+        best = float('inf')
+        seed_i, seed_j = 0, 1
+        for i in range(n):
+            for j in range(i + 1, n):
+                d = math.hypot(pos[i][0] - pos[j][0], pos[i][1] - pos[j][1])
+                if d < best:
+                    best, seed_i, seed_j = d, i, j
+
+        in_tree = [False] * n
+        in_tree[seed_i] = True
+        in_tree[seed_j] = True
+        order = [seed_i, seed_j]
+
+        heap: List = []
+        for k in range(n):
+            if not in_tree[k]:
+                for seed in (seed_i, seed_j):
+                    d = math.hypot(pos[seed][0] - pos[k][0], pos[seed][1] - pos[k][1])
+                    heapq.heappush(heap, (d, k))
+
+        while heap and len(order) < n:
+            dist, k = heapq.heappop(heap)
+            if in_tree[k]:
+                continue
+            in_tree[k] = True
+            order.append(k)
+            for j in range(n):
+                if not in_tree[j]:
+                    d = math.hypot(pos[k][0] - pos[j][0], pos[k][1] - pos[j][1])
+                    heapq.heappush(heap, (d, j))
+
+        return order
 
     def _mark_path(self, path: List[Tuple], net_id: int) -> List[Tuple[int, int]]:
         via_list = []
@@ -111,24 +105,22 @@ class Router:
                 via_list.append((col, row))
         return via_list
 
+    # ------------------------------------------------------------------
+    # Routing
+    # ------------------------------------------------------------------
+
     def route_net(self, net: Net, cost_map=None) -> bool:
         if len(net.pads) < 2:
             return True
 
         cc = self.rules.clearance_cells
-
-        # MST order: start with the closest pair of pads, then greedily
-        # connect each remaining pad to the nearest point already in the tree.
-        # This builds a trunk-and-branch topology for multi-pin nets,
-        # keeping power rails and buses compact instead of winding across the board.
-        mst_idx = _mst_pad_order(net.pads)
+        mst_idx = self._mst_pad_order(net.pads)
         pads     = [net.pads[i]                    for i in mst_idx]
         pad_grid = [self.grid.mm_to_grid(p.x, p.y) for p in pads]
 
         all_paths: List[List[Tuple]] = []
         all_vias:  List[Tuple[int, int]] = []
 
-        # First segment: closest pair of pads
         start = (pad_grid[0][0], pad_grid[0][1], pads[0].layer)
         path  = astar(self.grid, start,
                       pad_grid[1][0], pad_grid[1][1],
@@ -138,7 +130,6 @@ class Router:
         all_vias.extend(self._mark_path(path, net.net_id))
         all_paths.append(path)
 
-        # Branch each subsequent pad onto the growing trace tree
         for i in range(2, len(pads)):
             new_start = (pad_grid[i][0], pad_grid[i][1], pads[i].layer)
             path = astar_to_net(self.grid, new_start,
@@ -153,37 +144,35 @@ class Router:
         self.vias[net.net_id]   = all_vias
         return True
 
-    def route_all(self) -> List[Net]:
+    def route_all(self, nets_ordered: Optional[List[Net]] = None) -> List[Net]:
         """
-        Two-level routing:
-          1. Global pass  — plan tile corridors, build congestion cost map.
-          2. Detailed pass — A* guided by cost map, least-congested nets first.
-          3. Rip-and-retry — failed nets retry with progressively reduced penalty.
+        Two-level routing.
+
+        nets_ordered: optional pre-computed routing order for GNN integration.
+                      When None, the GlobalRouter computes the order via
+                      tile-level congestion planning.
         """
-        # ── Global routing pass ──────────────────────────────────────────
         gr = GlobalRouter(self.grid, tile_size_mm=self.tile_size_mm)
-        nets_ordered = gr.plan_all(self.nets)
+        gr_ordered = gr.plan_all(self.nets)
         cost_map = gr.build_cost_map()
         self.global_router = gr
         self._cost_map = cost_map
-        if self.verbose:
-            print(f"  Global routing: {gr.stats()}")
+        logger.info("Global routing: %s", gr.stats())
 
-        # ── Detailed routing — full penalty ──────────────────────────────
-        failed = self._route_batch(nets_ordered, cost_map)
+        routing_order = nets_ordered if nets_ordered is not None else gr_ordered
 
-        # ── Rip-and-retry with halved penalty each round ─────────────────
+        failed = self._route_batch(routing_order, cost_map)
+
         penalty_scale = 1.0
         for iteration in range(self.max_iterations):
             if not failed:
                 break
             penalty_scale *= 0.5
-            scaled_map = (cost_map * penalty_scale
-                          if cost_map is not None else None)
-            if self.verbose:
-                print(f"  Rip-and-retry {iteration + 1}: "
-                      f"{len(failed)} net(s) failed  "
-                      f"(congestion penalty ×{penalty_scale:.2f})...")
+            scaled_map = cost_map * penalty_scale if cost_map is not None else None
+            logger.info(
+                "Rip-and-retry %d: %d net(s) failed (congestion penalty ×%.2f)",
+                iteration + 1, len(failed), penalty_scale,
+            )
             for net in failed:
                 self.grid.clear_net(net.net_id)
                 self.routed.pop(net.net_id, None)
@@ -191,10 +180,9 @@ class Router:
             failed = self._route_batch(failed, scaled_map)
 
         total = len(self.nets)
-        done = len(self.routed)
-        pct = 100 * done // total if total else 0
-        if self.verbose:
-            print(f"Routing complete: {done}/{total} nets ({pct}%)")
+        done  = len(self.routed)
+        pct   = 100 * done // total if total else 0
+        logger.info("Routing complete: %d/%d nets (%d%%)", done, total, pct)
         return failed
 
     def _route_batch(self, nets: List[Net], cost_map=None) -> List[Net]:
@@ -216,10 +204,8 @@ class Router:
         """
         cc = self.rules.clearance_cells
 
-        # Snapshot before-state so we can record only the newly poured cells
         before = (self.grid.grid[layer] == net_id).copy()
 
-        # Seed queue with all existing net_id cells on this layer
         queue: deque = deque()
         visited = np.zeros((self.grid.rows, self.grid.cols), dtype=bool)
         for row in range(self.grid.rows):

@@ -46,6 +46,9 @@ class Grid:
     # Queries
     # ------------------------------------------------------------------
 
+    def is_pad_cell(self, layer: int, row: int, col: int) -> bool:
+        return (layer, row, col) in self._pad_cells
+
     def is_valid(self, col: int, row: int, layer: int) -> bool:
         return (0 <= col < self.cols and
                 0 <= row < self.rows and
