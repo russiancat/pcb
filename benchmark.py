@@ -16,6 +16,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from router import POUR_NET_NAMES
 from router.board import Grid
 from router.design_rules import LOCAL_FAB_BASIC
 from router.kicad_parser import KiCadBoard, parse_sexp, _find_all
@@ -26,7 +27,7 @@ RESULTS_DIR = Path("results")
 RESULTS_DIR.mkdir(exist_ok=True)
 
 RULES = LOCAL_FAB_BASIC
-POUR_NAMES = {'GND', 'AGND', 'DGND', 'PGND', 'GND_ANALOG', 'GND_DIGITAL'}
+POUR_NAMES = POUR_NET_NAMES
 
 BOARDS = [
     "kicad-demo/demos/multichannel/multichannel_mixer.kicad_pcb",

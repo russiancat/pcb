@@ -78,12 +78,14 @@ class Router:
     def __init__(self, grid: Grid, nets: List[Net],
                  rules: DesignRules = HOME_ETCH,
                  max_iterations: int = 3,
-                 tile_size_mm: float = 5.0):
+                 tile_size_mm: float = 5.0,
+                 verbose: bool = True):
         self.grid = grid
         self.nets = nets
         self.rules = rules
         self.max_iterations = max_iterations
         self.tile_size_mm = tile_size_mm
+        self.verbose = verbose
 
         # Via cost from design rules — tuned per manufacturing process.
         self.via_cost = rules.via_cost
@@ -164,7 +166,8 @@ class Router:
         cost_map = gr.build_cost_map()
         self.global_router = gr
         self._cost_map = cost_map
-        print(f"  Global routing: {gr.stats()}")
+        if self.verbose:
+            print(f"  Global routing: {gr.stats()}")
 
         # ── Detailed routing — full penalty ──────────────────────────────
         failed = self._route_batch(nets_ordered, cost_map)
@@ -177,9 +180,10 @@ class Router:
             penalty_scale *= 0.5
             scaled_map = (cost_map * penalty_scale
                           if cost_map is not None else None)
-            print(f"  Rip-and-retry {iteration + 1}: "
-                  f"{len(failed)} net(s) failed  "
-                  f"(congestion penalty ×{penalty_scale:.2f})...")
+            if self.verbose:
+                print(f"  Rip-and-retry {iteration + 1}: "
+                      f"{len(failed)} net(s) failed  "
+                      f"(congestion penalty ×{penalty_scale:.2f})...")
             for net in failed:
                 self.grid.clear_net(net.net_id)
                 self.routed.pop(net.net_id, None)
@@ -189,7 +193,8 @@ class Router:
         total = len(self.nets)
         done = len(self.routed)
         pct = 100 * done // total if total else 0
-        print(f"Routing complete: {done}/{total} nets ({pct}%)")
+        if self.verbose:
+            print(f"Routing complete: {done}/{total} nets ({pct}%)")
         return failed
 
     def _route_batch(self, nets: List[Net], cost_map=None) -> List[Net]:

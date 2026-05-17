@@ -9,6 +9,7 @@ Usage:
 import sys
 import time
 
+from router import POUR_NET_NAMES
 from router.board import Grid
 from router.design_rules import LOCAL_FAB_BASIC, HOME_ETCH, HOBBYIST_ONLINE
 from router.kicad_parser import KiCadBoard
@@ -58,8 +59,6 @@ print(f"Grid    : {grid.cols} x {grid.rows} cells  "
       f"({grid.cols * grid.rows * grid.num_layers:,} states)  "
       f"clearance: {RULES.clearance_cells} cell(s)")
 
-# Nets to handle via copper pour rather than A* trace routing
-POUR_NET_NAMES = {'GND', 'AGND', 'DGND', 'PGND', 'GND_ANALOG', 'GND_DIGITAL'}
 pour_nets = [n for n in nets if n.name.upper() in POUR_NET_NAMES]
 trace_nets = [n for n in nets if n.name.upper() not in POUR_NET_NAMES]
 if pour_nets:
