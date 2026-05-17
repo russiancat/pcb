@@ -31,7 +31,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 try:
     import requests
@@ -109,9 +109,8 @@ class GitHubClient:
 
         return {}
 
-    def search_repos_by_topic(self, topic: str) -> List[dict]:
-        """Return up to 1 000 repos tagged with a topic (10 pages × 100)."""
-        repos: List[dict] = []
+    def iter_repos_by_topic(self, topic: str):
+        """Yield repos one page at a time for a topic tag (up to 10 pages)."""
         for page in range(1, 11):
             data  = self._get(
                 f"{API_BASE}/search/repositories",
@@ -119,15 +118,13 @@ class GitHubClient:
                 sleep=SEARCH_SLEEP,
             )
             batch = data.get("items", [])
-            repos.extend(batch)
+            yield from batch
             if len(batch) < 100:
                 break
-        return repos
 
-    def search_code_by_extension(self) -> List[dict]:
-        """Return repos that contain .kicad_pcb files (code search)."""
-        repos: List[dict] = []
-        seen:  set        = set()
+    def iter_repos_by_extension(self):
+        """Yield repos one page at a time from kicad_pcb code search."""
+        seen: set = set()
         for page in range(1, 11):
             data  = self._get(
                 f"{API_BASE}/search/code",
@@ -141,10 +138,9 @@ class GitHubClient:
                 r = item.get("repository")
                 if r and r["full_name"] not in seen:
                     seen.add(r["full_name"])
-                    repos.append(r)
+                    yield r
             if len(batch) < 100:
                 break
-        return repos
 
     def get_tree(self, owner: str, repo: str, branch: str) -> List[dict]:
         """Return the full recursive file tree for a branch."""
@@ -398,39 +394,38 @@ def main() -> None:
 
     client = GitHubClient(args.token)
 
-    # ── Discover repos ────────────────────────────────────────────────────────
-    print("Discovering repos ...")
-    repo_map: Dict[str, dict] = {}
-
-    for topic in SEARCH_TOPICS:
-        print(f"  topic:{topic} ...", end=" ", flush=True)
-        batch = client.search_repos_by_topic(topic)
-        for r in batch:
-            repo_map[r["full_name"]] = r
-        print(f"{len(batch)} found  (unique total: {len(repo_map)})")
-
-    print("  code search: extension:kicad_pcb ...", end=" ", flush=True)
-    for r in client.search_code_by_extension():
-        repo_map.setdefault(r["full_name"], r)
-    print(f"unique total: {len(repo_map)}")
-
-    # ── Filter already visited ────────────────────────────────────────────────
-    unvisited = [r for fn, r in repo_map.items() if fn not in visited]
-    print(f"\n{len(unvisited)} unvisited  "
-          f"({len(visited)} already visited, {len(repo_map)} discovered total)")
-
-    if args.max_repos and len(unvisited) > args.max_repos:
-        unvisited = unvisited[:args.max_repos]
-        print(f"Capped at {args.max_repos} for this run.")
+    # ── Lazy repo stream: search one page, process immediately, stop at cap ───
+    def _repo_stream():
+        """Yield unvisited repos across all search sources, one page at a time."""
+        seen: set = set()
+        for topic in SEARCH_TOPICS:
+            print(f"Searching topic:{topic} ...")
+            for repo in client.iter_repos_by_topic(topic):
+                fn = repo["full_name"]
+                if fn not in seen and fn not in visited:
+                    seen.add(fn)
+                    yield repo
+        print("Searching code: extension:kicad_pcb ...")
+        for repo in client.iter_repos_by_extension():
+            fn = repo["full_name"]
+            if fn not in seen and fn not in visited:
+                seen.add(fn)
+                yield repo
 
     # ── Process repos ─────────────────────────────────────────────────────────
     total_dl     = 0
     total_passed = 0
+    processed    = 0
 
-    for i, repo in enumerate(unvisited, 1):
-        full_name = repo["full_name"]
-        stars     = repo.get("stargazers_count", 0)
-        print(f"\n[{i}/{len(unvisited)}] {full_name}  ★{stars}")
+    for repo in _repo_stream():
+        if args.max_repos and processed >= args.max_repos:
+            print(f"\nReached --max-repos {args.max_repos} — stopping.")
+            break
+
+        processed += 1
+        full_name  = repo["full_name"]
+        stars      = repo.get("stargazers_count", 0)
+        print(f"\n[{processed}] {full_name}  ★{stars}")
 
         try:
             dl, passed = process_repo(client, repo, output_dir, args.dry_run)
