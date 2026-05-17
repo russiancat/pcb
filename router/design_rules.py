@@ -1,14 +1,16 @@
 """
-Design rules presets for common PCB manufacturers.
+DesignRules — routing configuration passed to Router.
 
-In this router, grid resolution = trace width (one cell = one trace width).
-Clearance is enforced as additional cells around each trace during routing.
+These are the parameters the router uses during A* pathfinding:
+  resolution_mm        = trace width (1 cell = 1 trace width)
+  clearance_mm         = minimum gap between traces of different nets
+  component_clearance_mm = minimum keepout around component bodies
+  via_drill_mm / via_annular_mm = via geometry (recorded for DRC/export)
+  via_cost             = A* cost of a layer change (high = avoid vias)
+  edge_clearance_mm    = copper keepout from board edge
 
-Changing the preset changes:
-  - Grid resolution (= trace width)
-  - Clearance between different nets
-  - Component body keepout distance
-  - Via dimensions (recorded for DRC/export; not yet simulated in grid)
+Manufacturer presets live in router/profiles/*.toml and are loaded by
+router/manufacturer_profile.py. Import from there, not here.
 """
 
 from dataclasses import dataclass
@@ -17,26 +19,17 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class DesignRules:
     name: str
-    # Grid resolution also sets the trace width (1 cell = 1 trace width)
     resolution_mm: float
-    # Minimum gap between traces of different nets
     clearance_mm: float
-    # Minimum keepout around component bodies
     component_clearance_mm: float
-    # Via geometry
     via_drill_mm: float
-    via_annular_mm: float   # ring width; total via pad = drill + 2*annular
-    # Via cost in A* units (orthogonal steps equivalent).
-    # High = router avoids vias; low = router uses them freely to escape congestion.
-    # Scale to the manufacturing process: hand-drilled vias are genuinely expensive,
-    # machine-drilled are nearly free at JLCPCB / PCBWay.
+    via_annular_mm: float
     via_cost: float = 8.0
-    # Minimum clearance to board edge (copper keepout)
     edge_clearance_mm: float = 0.3
 
     @property
     def clearance_cells(self) -> int:
-        """Number of grid cells to enforce as clearance between nets."""
+        """Grid cells to enforce as clearance between nets."""
         return max(1, round(self.clearance_mm / self.resolution_mm))
 
     @property
@@ -46,94 +39,10 @@ class DesignRules:
     def summary(self) -> str:
         return (
             f"{self.name}\n"
-            f"  trace width : {self.resolution_mm:.2f} mm  "
+            f"  trace width : {self.resolution_mm:.3f} mm  "
             f"({self.resolution_mm / 0.0254:.0f} mil)\n"
-            f"  clearance   : {self.clearance_mm:.2f} mm  "
+            f"  clearance   : {self.clearance_mm:.3f} mm  "
             f"({self.clearance_mm / 0.0254:.0f} mil)\n"
-            f"  via drill   : {self.via_drill_mm:.2f} mm\n"
-            f"  via pad     : {self.via_drill_mm + 2*self.via_annular_mm:.2f} mm"
+            f"  via drill   : {self.via_drill_mm:.3f} mm\n"
+            f"  via pad     : {self.via_drill_mm + 2*self.via_annular_mm:.3f} mm"
         )
-
-
-# ------------------------------------------------------------------
-# Presets
-# ------------------------------------------------------------------
-
-HOME_ETCH = DesignRules(
-    name="Home etching (toner transfer / UV)",
-    resolution_mm=1.0,
-    clearance_mm=1.0,
-    component_clearance_mm=1.0,
-    via_drill_mm=1.2,
-    via_annular_mm=0.6,
-    via_cost=25.0,       # hand-drilled vias are genuinely expensive — avoid them
-    edge_clearance_mm=0.5,
-)
-
-LOCAL_FAB_BASIC = DesignRules(
-    name="Local fab — basic (older equipment)",
-    resolution_mm=0.5,
-    clearance_mm=0.5,
-    component_clearance_mm=0.5,
-    via_drill_mm=0.8,
-    via_annular_mm=0.4,
-    via_cost=8.0,
-    edge_clearance_mm=0.3,
-)
-
-LOCAL_FAB_MODERN = DesignRules(
-    name="Local fab — modern equipment",
-    resolution_mm=0.3,
-    clearance_mm=0.3,
-    component_clearance_mm=0.3,
-    via_drill_mm=0.6,
-    via_annular_mm=0.3,
-    via_cost=5.0,
-    edge_clearance_mm=0.3,
-)
-
-HOBBYIST_ONLINE = DesignRules(
-    name="Online fab — JLCPCB / PCBWay / Aisler (hobbyist)",
-    resolution_mm=0.25,
-    clearance_mm=0.25,
-    component_clearance_mm=0.3,
-    via_drill_mm=0.4,
-    via_annular_mm=0.2,
-    via_cost=4.0,        # vias nearly free at JLCPCB/PCBWay
-    edge_clearance_mm=0.3,
-)
-
-PROFESSIONAL = DesignRules(
-    name="Online fab — JLCPCB / PCBWay (professional / tight)",
-    resolution_mm=0.127,
-    clearance_mm=0.127,
-    component_clearance_mm=0.2,
-    via_drill_mm=0.3,
-    via_annular_mm=0.15,
-    via_cost=3.0,
-    edge_clearance_mm=0.2,
-)
-
-# Zbotic (zbotic.in) — Indian online fab (Moxie Supply Pvt Ltd, Pune)
-# Specs from: zbotic.in/pcb-technical-design-guidelines/
-ZBOTIC_2L = DesignRules(
-    name="Zbotic — 1-2 layer (0.127mm / 5mil)",
-    resolution_mm=0.127,
-    clearance_mm=0.127,
-    component_clearance_mm=0.2,
-    via_drill_mm=0.15,
-    via_annular_mm=0.13,   # min annular ring per their spec
-    via_cost=4.0,
-    edge_clearance_mm=0.3,
-)
-
-ZBOTIC_4L = DesignRules(
-    name="Zbotic — 4+ layer (0.1mm / 4mil)",
-    resolution_mm=0.1,
-    clearance_mm=0.1,
-    component_clearance_mm=0.15,
-    via_drill_mm=0.15,
-    via_annular_mm=0.1,    # min annular ring per their spec
-    via_cost=3.0,
-    edge_clearance_mm=0.3,
-)

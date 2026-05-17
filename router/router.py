@@ -8,7 +8,7 @@ import numpy as np
 
 from .astar import astar, astar_to_net
 from .board import EMPTY, Grid
-from .design_rules import DesignRules, HOME_ETCH
+from .design_rules import DesignRules
 from .global_router import GlobalRouter
 from .netlist import Net
 
@@ -30,7 +30,7 @@ class Router:
     """
 
     def __init__(self, grid: Grid, nets: List[Net],
-                 rules: DesignRules = HOME_ETCH,
+                 rules: DesignRules,
                  max_iterations: int = 3,
                  tile_size_mm: float = 5.0):
         self.grid = grid

@@ -1,0 +1,22 @@
+# Zbotic (zbotic.in) — Moxie Supply Pvt Ltd, Pune — 1-2 layer
+# Verify/update at: https://zbotic.in/pcb-technical-design-guidelines/
+name = "Zbotic — 2-layer (0.127mm / 5mil)"
+source_url = "https://zbotic.in/pcb-technical-design-guidelines/"
+
+[design_rules]
+resolution_mm = 0.127
+clearance_mm = 0.127
+component_clearance_mm = 0.2
+via_drill_mm = 0.15
+via_annular_mm = 0.13  # pad = 0.15 + 2×0.13 = 0.41mm
+via_cost = 4.0
+edge_clearance_mm = 0.3
+
+[drc]
+min_via_diameter_mm = 0.41
+min_pth_drill_mm = 0.2
+max_pth_drill_mm = 6.3
+min_npth_drill_mm = 0.5
+min_hole_to_hole_mm = 0.5
+min_silk_text_height_mm = 0.8
+min_silk_clearance_mm = 0.15

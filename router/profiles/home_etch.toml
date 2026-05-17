@@ -1,0 +1,22 @@
+# Home etching — toner transfer or UV exposure
+# No official spec; values reflect practical limits of DIY etching.
+name = "Home etching (toner transfer / UV)"
+source_url = ""
+
+[design_rules]
+resolution_mm = 1.0
+clearance_mm = 1.0
+component_clearance_mm = 1.0
+via_drill_mm = 1.2
+via_annular_mm = 0.6   # pad = 1.2 + 2×0.6 = 2.4mm
+via_cost = 25.0        # hand-drilled vias are genuinely expensive — avoid them
+edge_clearance_mm = 0.5
+
+[drc]
+min_via_diameter_mm = 2.4
+min_pth_drill_mm = 0.8
+max_pth_drill_mm = 10.0
+min_npth_drill_mm = 1.0
+min_hole_to_hole_mm = 1.5
+min_silk_text_height_mm = 1.0
+min_silk_clearance_mm = 0.5

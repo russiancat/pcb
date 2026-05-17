@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 
 from router import POUR_NET_NAMES
 from router.board import Grid
-from router.design_rules import LOCAL_FAB_BASIC
+from router.design_rules import DesignRules
 from router.drc import ViolationType, run_drc
 from router.kicad_parser import KiCadBoard, parse_sexp, _find_all
 from router.quality import quality_report
@@ -30,7 +30,18 @@ from visualize import plot_board
 RESULTS_DIR = Path("results")
 RESULTS_DIR.mkdir(exist_ok=True)
 
-RULES = LOCAL_FAB_BASIC
+# 0.5mm grid for benchmarking speed on large boards.
+# Not a manufacturer spec — use a ManufacturerProfile for real DRC.
+RULES = DesignRules(
+    name="Benchmark (0.5mm grid)",
+    resolution_mm=0.5,
+    clearance_mm=0.5,
+    component_clearance_mm=0.5,
+    via_drill_mm=0.8,
+    via_annular_mm=0.4,
+    via_cost=8.0,
+    edge_clearance_mm=0.3,
+)
 POUR_NAMES = POUR_NET_NAMES
 
 BOARDS = [

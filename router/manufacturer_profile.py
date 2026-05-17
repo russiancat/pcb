@@ -1,29 +1,33 @@
 """
 Manufacturer profiles for DRC and routing preset selection.
 
-Each profile encodes:
-  - A DesignRules instance (routing config — trace width, via dims, clearance, via cost)
-  - DRC-only constraints that are checked post-route but don't affect the routing grid
-    (hole sizes, hole-to-hole clearance, silkscreen rules)
+Profiles are loaded from router/profiles/*.toml at import time.
+Each TOML file is the single source of truth for a manufacturer's capabilities.
+To add a new manufacturer: create a new .toml file — no Python changes needed.
 
-Source URLs are documented so values can be verified and updated when fabs change specs.
-All values are minimums unless noted as maximums.
+Profile structure (see any *.toml for the schema):
+  name, source_url
+  [design_rules]   — feeds Router directly (trace width, clearance, via dims, via cost)
+  [drc]            — post-route checks (hole sizes, hole-to-hole, silkscreen)
 
-Merge strategy: ManufacturerProfile.merge(*profiles) applies strictest-wins —
+Merge strategy: ManufacturerProfile.merge(*profiles) applies strictest-wins.
   max of all minimums, min of all maximums.
-This is the only safe strategy: a constraint that is too loose silently produces scrap.
 """
 
+import tomllib
 from dataclasses import dataclass
-from typing import Optional
+from pathlib import Path
+from typing import Dict, Optional
 
 from .design_rules import DesignRules
+
+PROFILES_DIR = Path(__file__).parent / "profiles"
 
 
 @dataclass(frozen=True)
 class ManufacturerProfile:
     name: str
-    source_url: str          # capabilities page — update this when specs change
+    source_url: str          # capabilities page — update the .toml when specs change
 
     # Routing config for this fab tier (feeds Router directly)
     design_rules: DesignRules
@@ -46,7 +50,7 @@ class ManufacturerProfile:
     @staticmethod
     def merge(*profiles: 'ManufacturerProfile') -> 'ManufacturerProfile':
         """
-        Combine multiple profiles using strictest-wins.
+        Combine profiles using strictest-wins.
 
         For every minimum constraint: take the maximum across all profiles.
         For every maximum constraint: take the minimum across all profiles.
@@ -81,153 +85,71 @@ class ManufacturerProfile:
 
 
 # ------------------------------------------------------------------
-# PCBWay
-# Source: github.com/pcbway/PCBWay-Design-Rules (official PCBWay repo)
-# Disclaimer from PCBWay: "All statements without guarantee."
-# Verify against: pcbway.com/capabilities.html
+# TOML loader
 # ------------------------------------------------------------------
 
-PCBWAY_2L = ManufacturerProfile(
-    name="PCBWay — 2-layer standard (1oz copper)",
-    source_url="https://github.com/pcbway/PCBWay-Design-Rules",
-    design_rules=DesignRules(
-        name="PCBWay 2-layer",
-        resolution_mm=0.127,
-        clearance_mm=0.127,
-        component_clearance_mm=0.2,
-        via_drill_mm=0.3,
-        via_annular_mm=0.1,    # pad = 0.3 + 2×0.1 = 0.5mm
-        via_cost=4.0,
-        edge_clearance_mm=0.3,
-    ),
-    min_via_diameter_mm=0.5,
-    min_pth_drill_mm=0.2,
-    max_pth_drill_mm=6.35,
-    min_npth_drill_mm=0.5,
-    min_hole_to_hole_mm=0.5,
-    min_silk_text_height_mm=0.8,
-    min_silk_clearance_mm=0.15,
-)
+def _load_profile(path: Path) -> ManufacturerProfile:
+    with open(path, "rb") as f:
+        data = tomllib.load(f)
 
-PCBWAY_4L = ManufacturerProfile(
-    name="PCBWay — 4-layer advanced (1oz/0.5oz copper)",
-    source_url="https://github.com/pcbway/PCBWay-Design-Rules",
-    design_rules=DesignRules(
-        name="PCBWay 4-layer",
-        resolution_mm=0.09,
-        clearance_mm=0.09,
-        component_clearance_mm=0.15,
-        via_drill_mm=0.15,
-        via_annular_mm=0.075,  # pad = 0.15 + 2×0.075 = 0.3mm
-        via_cost=3.0,
-        edge_clearance_mm=0.3,
-    ),
-    min_via_diameter_mm=0.3,
-    min_pth_drill_mm=0.2,
-    max_pth_drill_mm=6.35,
-    min_npth_drill_mm=0.5,
-    min_hole_to_hole_mm=0.5,
-    min_silk_text_height_mm=0.8,
-    min_silk_clearance_mm=0.15,
-)
+    dr = data["design_rules"]
+    drc = data["drc"]
 
-# ------------------------------------------------------------------
-# JLCPCB
-# Source: github.com/labtroll/KiCad-DesignRules (community, verified
-#         against JLCPCB capabilities page jlcpcb.com/capabilities/pcb-capabilities)
-# ------------------------------------------------------------------
+    design_rules = DesignRules(
+        name=data["name"],
+        resolution_mm=dr["resolution_mm"],
+        clearance_mm=dr["clearance_mm"],
+        component_clearance_mm=dr["component_clearance_mm"],
+        via_drill_mm=dr["via_drill_mm"],
+        via_annular_mm=dr["via_annular_mm"],
+        via_cost=dr["via_cost"],
+        edge_clearance_mm=dr["edge_clearance_mm"],
+    )
+    return ManufacturerProfile(
+        name=data["name"],
+        source_url=data.get("source_url", ""),
+        design_rules=design_rules,
+        min_via_diameter_mm=drc["min_via_diameter_mm"],
+        min_pth_drill_mm=drc["min_pth_drill_mm"],
+        max_pth_drill_mm=drc["max_pth_drill_mm"],
+        min_npth_drill_mm=drc["min_npth_drill_mm"],
+        min_hole_to_hole_mm=drc["min_hole_to_hole_mm"],
+        min_silk_text_height_mm=drc["min_silk_text_height_mm"],
+        min_silk_clearance_mm=drc["min_silk_clearance_mm"],
+    )
 
-JLCPCB_2L = ManufacturerProfile(
-    name="JLCPCB — 2-layer standard",
-    source_url="https://jlcpcb.com/capabilities/pcb-capabilities",
-    design_rules=DesignRules(
-        name="JLCPCB 2-layer",
-        resolution_mm=0.127,
-        clearance_mm=0.127,
-        component_clearance_mm=0.2,
-        via_drill_mm=0.3,
-        via_annular_mm=0.1,    # pad = 0.5mm
-        via_cost=4.0,
-        edge_clearance_mm=0.3,
-    ),
-    min_via_diameter_mm=0.5,
-    min_pth_drill_mm=0.2,
-    max_pth_drill_mm=6.3,
-    min_npth_drill_mm=0.5,
-    min_hole_to_hole_mm=0.5,
-    min_silk_text_height_mm=1.0,   # JLCPCB requires 1mm; PCBWay allows 0.8mm
-    min_silk_clearance_mm=0.15,
-)
 
-JLCPCB_4L = ManufacturerProfile(
-    name="JLCPCB — 4-layer advanced",
-    source_url="https://jlcpcb.com/capabilities/pcb-capabilities",
-    design_rules=DesignRules(
-        name="JLCPCB 4-layer",
-        resolution_mm=0.09,
-        clearance_mm=0.09,
-        component_clearance_mm=0.15,
-        via_drill_mm=0.2,
-        via_annular_mm=0.075,  # pad = 0.2 + 2×0.075 = 0.35mm
-        via_cost=3.0,
-        edge_clearance_mm=0.3,
-    ),
-    min_via_diameter_mm=0.35,
-    min_pth_drill_mm=0.2,
-    max_pth_drill_mm=6.3,
-    min_npth_drill_mm=0.5,
-    min_hole_to_hole_mm=0.5,
-    min_silk_text_height_mm=1.0,
-    min_silk_clearance_mm=0.15,
-)
+def load_all_profiles() -> Dict[str, ManufacturerProfile]:
+    """Load all profiles from router/profiles/*.toml. Key = filename stem."""
+    return {
+        path.stem: _load_profile(path)
+        for path in sorted(PROFILES_DIR.glob("*.toml"))
+    }
+
+
+def get_profile(key: str) -> ManufacturerProfile:
+    """Load a profile by filename stem (e.g. 'pcbway_2l').
+    Raises KeyError with available names if not found.
+    """
+    if key not in _all:
+        available = ", ".join(sorted(_all.keys()))
+        raise KeyError(f"Unknown profile {key!r}. Available: {available}")
+    return _all[key]
+
 
 # ------------------------------------------------------------------
-# Zbotic (zbotic.in — Moxie Supply Pvt Ltd, Pune)
-# Source: zbotic.in/pcb-technical-design-guidelines/
+# Load at import time and expose as named constants.
+# Adding a manufacturer = adding a .toml file; no Python changes needed.
 # ------------------------------------------------------------------
 
-ZBOTIC_2L = ManufacturerProfile(
-    name="Zbotic — 2-layer (0.127mm / 5mil)",
-    source_url="https://zbotic.in/pcb-technical-design-guidelines/",
-    design_rules=DesignRules(
-        name="Zbotic 2-layer",
-        resolution_mm=0.127,
-        clearance_mm=0.127,
-        component_clearance_mm=0.2,
-        via_drill_mm=0.15,
-        via_annular_mm=0.13,
-        via_cost=4.0,
-        edge_clearance_mm=0.3,
-    ),
-    min_via_diameter_mm=0.41,   # 0.15 + 2×0.13
-    min_pth_drill_mm=0.2,
-    max_pth_drill_mm=6.3,
-    min_npth_drill_mm=0.5,
-    min_hole_to_hole_mm=0.5,
-    min_silk_text_height_mm=0.8,
-    min_silk_clearance_mm=0.15,
-)
+_all: Dict[str, ManufacturerProfile] = load_all_profiles()
 
-ZBOTIC_4L = ManufacturerProfile(
-    name="Zbotic — 4+ layer (0.1mm / 4mil)",
-    source_url="https://zbotic.in/pcb-technical-design-guidelines/",
-    design_rules=DesignRules(
-        name="Zbotic 4-layer",
-        resolution_mm=0.1,
-        clearance_mm=0.1,
-        component_clearance_mm=0.15,
-        via_drill_mm=0.15,
-        via_annular_mm=0.1,
-        via_cost=3.0,
-        edge_clearance_mm=0.3,
-    ),
-    min_via_diameter_mm=0.35,   # 0.15 + 2×0.1
-    min_pth_drill_mm=0.2,
-    max_pth_drill_mm=6.3,
-    min_npth_drill_mm=0.5,
-    min_hole_to_hole_mm=0.5,
-    min_silk_text_height_mm=0.8,
-    min_silk_clearance_mm=0.15,
-)
+HOME_ETCH  = _all["home_etch"]
+PCBWAY_2L  = _all["pcbway_2l"]
+PCBWAY_4L  = _all["pcbway_4l"]
+JLCPCB_2L  = _all["jlcpcb_2l"]
+JLCPCB_4L  = _all["jlcpcb_4l"]
+ZBOTIC_2L  = _all["zbotic_2l"]
+ZBOTIC_4L  = _all["zbotic_4l"]
 
-ALL_PROFILES = [PCBWAY_2L, PCBWAY_4L, JLCPCB_2L, JLCPCB_4L, ZBOTIC_2L, ZBOTIC_4L]
+ALL_PROFILES = list(_all.values())

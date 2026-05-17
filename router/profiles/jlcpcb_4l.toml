@@ -1,0 +1,24 @@
+# JLCPCB — 4-layer advanced
+# Source: github.com/labtroll/KiCad-DesignRules (community, cross-referenced with
+#         JLCPCB capabilities page)
+# Verify/update at: https://jlcpcb.com/capabilities/pcb-capabilities
+name = "JLCPCB — 4-layer advanced"
+source_url = "https://jlcpcb.com/capabilities/pcb-capabilities"
+
+[design_rules]
+resolution_mm = 0.09
+clearance_mm = 0.09
+component_clearance_mm = 0.15
+via_drill_mm = 0.2
+via_annular_mm = 0.075  # pad = 0.2 + 2×0.075 = 0.35mm
+via_cost = 3.0
+edge_clearance_mm = 0.3
+
+[drc]
+min_via_diameter_mm = 0.35
+min_pth_drill_mm = 0.2
+max_pth_drill_mm = 6.3
+min_npth_drill_mm = 0.5
+min_hole_to_hole_mm = 0.5
+min_silk_text_height_mm = 1.0
+min_silk_clearance_mm = 0.15

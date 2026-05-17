@@ -14,16 +14,17 @@ logging.basicConfig(level=logging.INFO, format="  %(message)s")
 
 from router import POUR_NET_NAMES
 from router.board import Grid
-from router.design_rules import LOCAL_FAB_BASIC, HOME_ETCH, HOBBYIST_ONLINE
 from router.kicad_parser import KiCadBoard
+from router.manufacturer_profile import HOME_ETCH, JLCPCB_2L, PCBWAY_2L
 from router.router import Router
 from visualize import plot_board
 
 # ------------------------------------------------------------------
-# Config
+# Config — pick a manufacturer profile
 # ------------------------------------------------------------------
 PCB_FILE = sys.argv[1] if len(sys.argv) > 1 else "data/test_board.kicad_pcb"
-RULES    = LOCAL_FAB_BASIC   # change to taste
+PROFILE  = JLCPCB_2L        # change to PCBWAY_2L, HOME_ETCH, etc.
+RULES    = PROFILE.design_rules
 
 # ------------------------------------------------------------------
 # Parse

@@ -1,0 +1,23 @@
+# PCBWay — 2-layer, 1oz copper (standard hobbyist tier)
+# Source: github.com/pcbway/PCBWay-Design-Rules (official PCBWay GitHub org)
+# Verify/update at: https://www.pcbway.com/capabilities.html
+name = "PCBWay — 2-layer standard (1oz copper)"
+source_url = "https://github.com/pcbway/PCBWay-Design-Rules"
+
+[design_rules]
+resolution_mm = 0.127
+clearance_mm = 0.127
+component_clearance_mm = 0.2
+via_drill_mm = 0.3
+via_annular_mm = 0.1   # pad = 0.3 + 2×0.1 = 0.5mm
+via_cost = 4.0
+edge_clearance_mm = 0.3
+
+[drc]
+min_via_diameter_mm = 0.5
+min_pth_drill_mm = 0.2
+max_pth_drill_mm = 6.35
+min_npth_drill_mm = 0.5
+min_hole_to_hole_mm = 0.5
+min_silk_text_height_mm = 0.8
+min_silk_clearance_mm = 0.15

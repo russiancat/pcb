@@ -5,19 +5,16 @@ Demo: route a small 2-layer board using A* + rip-and-retry.
 import time
 
 from router.board import Grid
-from router.design_rules import HOME_ETCH, LOCAL_FAB_BASIC, LOCAL_FAB_MODERN, HOBBYIST_ONLINE, PROFESSIONAL
+from router.manufacturer_profile import HOME_ETCH, JLCPCB_2L, PCBWAY_2L, ZBOTIC_2L
 from router.netlist import Component, Net, Pad
 from router.router import Router
 from visualize import plot_board
 
 # ------------------------------------------------------------------
-# Pick your target manufacturer here
+# Pick your target manufacturer profile here
 # ------------------------------------------------------------------
-RULES = HOME_ETCH            # 1.0mm — home toner transfer / UV  (default)
-# RULES = LOCAL_FAB_BASIC    # 0.5mm — older local shop
-# RULES = LOCAL_FAB_MODERN   # 0.3mm — modern local shop
-# RULES = HOBBYIST_ONLINE    # 0.25mm — JLCPCB / PCBWay hobbyist
-# RULES = PROFESSIONAL       # 0.127mm (5mil) — tight professional
+PROFILE = HOME_ETCH    # change to JLCPCB_2L, PCBWAY_2L, ZBOTIC_2L, etc.
+RULES   = PROFILE.design_rules
 
 BOARD_W = 40.0
 BOARD_H = 30.0
