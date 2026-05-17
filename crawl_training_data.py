@@ -1,18 +1,32 @@
 #!/usr/bin/env python3
 """
-Crawl GitHub for KiCad PCB files and score them for GNN training-data quality.
+Crawl GitHub for KiCad project files and score PCBs for GNN training-data quality.
 
-Repos are discovered via topic search and GitHub code search, then each
-.kicad_pcb file is downloaded, parsed, and scored against quality thresholds.
-State is persisted so the script is safe to interrupt and resume.
+Repos are discovered via topic search and GitHub code search.  Each .kicad_pcb
+file is scored against quality thresholds.  Repos with at least one passing PCB
+have their full KiCad project saved — PCB, schematic(s), project settings, and
+custom design rules — preserving the original directory structure.
+
+Files collected per passing repo:
+    .kicad_pcb   PCB layout (quality-gated — only passing boards saved)
+    .kicad_sch   Schematic (KiCad 6+) — net labels, component types, hierarchy
+    .sch         Schematic (KiCad 4/5 legacy format)
+    .kicad_pro   Project file — net classes, per-class trace width / clearance
+    .kicad_dru   Custom design rules (KiCad 7+) — designer-specified DRC constraints
+
+Files NOT collected: .kicad_prl (UI state), .kicad_sym/.kicad_mod (standard libs),
+    .kicad_wks (title block), fp-lib-table / sym-lib-table, .net (redundant)
 
 Directory layout after a run:
     data/training/
-      visited.json          {repo_full_name: {visited_at, files_dl, files_passed}}
+      visited.json          {repo_full_name: {visited_at, files_passed}}
       candidates.json       [{repo, file, metrics...}] — boards that pass thresholds
-      owner__repo/
-        board_name.kicad_pcb
-        board_name.score.json
+      owner__repo/          original repo directory structure preserved inside
+        path/to/board.kicad_pcb
+        path/to/board.score.json
+        path/to/board.kicad_sch
+        path/to/board.kicad_pro
+        path/to/board.kicad_dru
 
 Usage:
     export GITHUB_TOKEN=ghp_...            # strongly recommended (10x more quota)
@@ -44,6 +58,10 @@ from router.kicad_parser import KiCadBoard, _find_all, parse_sexp
 # ── Search topics ─────────────────────────────────────────────────────────────
 
 SEARCH_TOPICS = ["kicad", "kicad-pcb", "open-hardware", "pcb-design"]
+
+# Companion files saved alongside every passing .kicad_pcb (no quality gate —
+# just grab whatever exists in the repo).
+COMPANION_EXTENSIONS = frozenset({".kicad_sch", ".sch", ".kicad_pro", ".kicad_dru"})
 
 # ── Quality thresholds ────────────────────────────────────────────────────────
 
@@ -273,6 +291,25 @@ def score_board(path: Path) -> dict:
 
 # ── Per-repo processing ───────────────────────────────────────────────────────
 
+def _score_from_bytes(content: bytes) -> dict:
+    """Write content to a temp file, score it, delete the temp file."""
+    tmp_fd, tmp_path_str = tempfile.mkstemp(suffix=".kicad_pcb")
+    try:
+        with os.fdopen(tmp_fd, "wb") as fh:
+            fh.write(content)
+        return score_board(Path(tmp_path_str))
+    finally:
+        Path(tmp_path_str).unlink(missing_ok=True)
+
+
+def _save(repo_dir: Path, repo_path: str, content: bytes) -> Path:
+    """Save content preserving its original path relative to the repo root."""
+    dest = repo_dir / repo_path
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(content)
+    return dest
+
+
 def process_repo(
     client:     GitHubClient,
     repo:       dict,
@@ -280,67 +317,72 @@ def process_repo(
     dry_run:    bool,
 ) -> int:
     """
-    Download and score every .kicad_pcb file in repo.
-    Only files that pass quality thresholds are written to disk.
-    Returns the number of passing files saved.
+    Score every .kicad_pcb in the repo.  If any pass, save them plus all
+    companion files (.kicad_sch, .sch, .kicad_pro, .kicad_dru), preserving
+    the original directory structure.  Failing PCBs are never written to disk.
+    Returns the number of passing PCBs saved.
     """
     owner  = repo["owner"]["login"]
     name   = repo["name"]
     branch = repo.get("default_branch") or client.default_branch(owner, name)
 
-    tree = client.get_tree(owner, name, branch)
-    pcb_paths = [
-        f["path"] for f in tree
-        if f.get("type") == "blob" and f.get("path", "").endswith(".kicad_pcb")
-    ]
+    tree       = client.get_tree(owner, name, branch)
+    blobs      = [f for f in tree if f.get("type") == "blob"]
+    pcb_paths  = [f["path"] for f in blobs if f["path"].endswith(".kicad_pcb")]
+    comp_paths = [f["path"] for f in blobs
+                  if Path(f["path"]).suffix in COMPANION_EXTENSIONS]
 
     if not pcb_paths:
         print("  no .kicad_pcb files")
         return 0
 
-    print(f"  {len(pcb_paths)} .kicad_pcb file(s)  (branch: {branch})")
+    print(f"  {len(pcb_paths)} .kicad_pcb  "
+          f"{len(comp_paths)} companion file(s)  (branch: {branch})")
+
+    if dry_run:
+        for p in pcb_paths:
+            print(f"    [dry-run] {p}")
+        return 0
 
     repo_dir = output_dir / repo["full_name"].replace("/", "__")
-    passed   = 0
+
+    # ── Score all PCBs first, nothing written yet ─────────────────────────────
+    passing: List[Tuple[str, bytes, dict]] = []   # (repo_path, content, score)
 
     for file_path in pcb_paths:
-        file_name = Path(file_path).name
-
-        if dry_run:
-            print(f"    [dry-run] {file_path}")
-            continue
-
         content = client.download_raw(owner, name, branch, file_path)
         if content is None:
-            print(f"    skip (download failed): {file_name}")
+            print(f"    skip (download failed): {Path(file_path).name}")
             continue
 
-        # Score from a temp file — nothing written to the training dir yet.
-        # Failing boards are discarded without touching disk.
-        tmp_fd, tmp_path_str = tempfile.mkstemp(suffix=".kicad_pcb")
-        try:
-            with os.fdopen(tmp_fd, "wb") as fh:
-                fh.write(content)
-            score = score_board(Path(tmp_path_str))
-        finally:
-            Path(tmp_path_str).unlink(missing_ok=True)
-
+        score  = _score_from_bytes(content)
         status = "✓" if score["passes"] else f"✗  {score['reason']}"
-        print(f"    {file_name}: {score['net_count']} nets, "
+        print(f"    {Path(file_path).name}: {score['net_count']} nets, "
               f"{score['routing_pct']:.0f}% routed — {status}")
 
-        if not score["passes"]:
-            continue
+        if score["passes"]:
+            passing.append((file_path, content, score))
 
-        # Only now write to the training directory
-        repo_dir.mkdir(parents=True, exist_ok=True)
-        local_pcb  = repo_dir / file_name
-        score_file = repo_dir / file_name.replace(".kicad_pcb", ".score.json")
-        local_pcb.write_bytes(content)
-        score_file.write_text(json.dumps(score, indent=2))
-        passed += 1
+    if not passing:
+        return 0
 
-    return passed
+    # ── Save passing PCBs + score files ───────────────────────────────────────
+    for file_path, content, score in passing:
+        dest = _save(repo_dir, file_path, content)
+        dest.with_suffix(".score.json").write_text(json.dumps(score, indent=2))
+
+    # ── Save companion files (schematic, project, design rules) ───────────────
+    saved_companions = 0
+    for file_path in comp_paths:
+        content = client.download_raw(owner, name, branch, file_path)
+        if content is not None:
+            _save(repo_dir, file_path, content)
+            saved_companions += 1
+
+    if saved_companions:
+        print(f"  saved {saved_companions} companion file(s)")
+
+    return len(passing)
 
 
 # ── Candidates index ──────────────────────────────────────────────────────────
@@ -348,7 +390,7 @@ def process_repo(
 def _collect_candidates(repo: dict, repo_dir: Path) -> List[dict]:
     """Build candidate entries for all passing boards in repo_dir."""
     entries: List[dict] = []
-    for score_file in sorted(repo_dir.glob("*.score.json")):
+    for score_file in sorted(repo_dir.rglob("*.score.json")):
         score = json.loads(score_file.read_text())
         if not score.get("passes"):
             continue
