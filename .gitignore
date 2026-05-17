@@ -13,6 +13,9 @@ demo_result.png
 # KiCad installation demo files (large, not our code — copy locally if needed)
 kicad-demo/
 
+# GNN training data (downloaded by crawl_training_data.py — large binary files)
+data/training/
+
 # macOS
 .DS_Store
 

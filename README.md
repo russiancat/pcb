@@ -123,10 +123,12 @@ visualize.py            Two-panel matplotlib visualisation (F.Cu / B.Cu)
 kicad_demo.py           Route a single board from a .kicad_pcb file
 benchmark.py            Benchmark all demo boards, compare vs KiCad reference
 demo.py                 Synthetic 5-net demo board
+crawl_training_data.py  Crawl GitHub for KiCad files → score → GNN training set
 tests/                  pytest test suite
 results/                Benchmark output images
 kicad-demo/             KiCad demo boards (local copy)
 data/                   Synthetic test boards
+data/training/          GNN training data (downloaded by crawl_training_data.py)
 CLAUDE.md               Project context for AI assistant sessions
 ```
 
@@ -148,7 +150,7 @@ CLAUDE.md               Project context for AI assistant sessions
 - [ ] Negotiated congestion (PathFinder-style)
 
 ### Phase 2 — GNN-assisted routing
-- [ ] Collect training data (KiCad boards from public repos)
+- [ ] Collect training data — `crawl_training_data.py` crawls GitHub (`kicad`, `kicad-pcb`, `open-hardware` topics + `extension:kicad_pcb` code search), scores each board (routing completion, component placement, board size), saves passing boards to `data/training/` with per-file score reports
 - [ ] GNN model: netlist graph → net ordering + strategy tags
 - [ ] Zone decomposition predicted by GNN
 - [ ] RL training loop: benchmark score → reward → GNN weight update

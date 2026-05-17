@@ -40,10 +40,12 @@ visualize.py        matplotlib — two-panel (F.Cu / B.Cu), legend below, pour a
 kicad_demo.py       Load + route + visualise a single board
 benchmark.py        Route all demo boards, compare vs existing KiCad routing
 demo.py             Synthetic 5-net demo board
+crawl_training_data.py  Crawl GitHub for KiCad files → score → build GNN training set
 tests/              pytest test suite (46 tests)
 results/            Per-board benchmark PNGs (gitignore heavy, but keep for reference)
 kicad-demo/         KiCad installation demo boards (copied locally)
 data/               Synthetic test boards
+data/training/      GNN training data (downloaded by crawl_training_data.py)
 ```
 
 ## Architecture
@@ -162,10 +164,11 @@ Filter by `v.type == ViolationType.SHORT_CIRCUIT` — never string-match on `str
 6. **A* code duplication** — `_astar` and `_astar_to_net` in `astar.py` share ~70% of the same loop body. `GlobalRouter._tile_astar` re-implements A* a third time. Consolidate behind a shared `_run_astar(stop_condition)` closure to eliminate the duplication.
 
 ### Architecture / ML
-7. **GNN for net ordering + strategy selection** — input: netlist graph + placement, output: strategy tag per net + routing order
-8. **GNN for auto-placement** — predict component positions from netlist graph. Training data: KiCad boards with coordinates.
-9. **RL training loop** — benchmark score becomes reward function: `Q = completion × wire_efficiency × via_efficiency`
-10. **Zone decomposition** — GNN predicts coarse tile assignment, A* does detailed routing within constraints
+7. **Training data collection (in progress)** — `crawl_training_data.py` crawls GitHub topics (`kicad`, `kicad-pcb`, `open-hardware`, `pcb-design`) and code search (`extension:kicad_pcb`). Quality thresholds: ≥5 nets, ≥75% routing completion, board 10–500 mm, ≤20% off-board components. Results in `data/training/`: raw `.kicad_pcb` files, per-file `score.json`, `visited.json` (resumability), `candidates.json` (index of passing boards). Requires `pip install requests` and `GITHUB_TOKEN` env var.
+8. **GNN for net ordering + strategy selection** — input: netlist graph + placement, output: strategy tag per net + routing order
+9. **GNN for auto-placement** — predict component positions from netlist graph. Training data: KiCad boards with coordinates.
+10. **RL training loop** — benchmark score becomes reward function: `Q = completion × wire_efficiency × via_efficiency`
+11. **Zone decomposition** — GNN predicts coarse tile assignment, A* does detailed routing within constraints
 
 ### Product
 10. **Web frontend** — backend: auth + storage (S3, no DB). All routing in browser.
