@@ -29,6 +29,7 @@ import argparse
 import json
 import os
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -277,14 +278,15 @@ def process_repo(
     repo:       dict,
     output_dir: Path,
     dry_run:    bool,
-) -> Tuple[int, int]:
+) -> int:
     """
     Download and score every .kicad_pcb file in repo.
-    Returns (files_downloaded, files_passed).
+    Only files that pass quality thresholds are written to disk.
+    Returns the number of passing files saved.
     """
-    owner     = repo["owner"]["login"]
-    name      = repo["name"]
-    branch    = repo.get("default_branch") or client.default_branch(owner, name)
+    owner  = repo["owner"]["login"]
+    name   = repo["name"]
+    branch = repo.get("default_branch") or client.default_branch(owner, name)
 
     tree = client.get_tree(owner, name, branch)
     pcb_paths = [
@@ -294,13 +296,12 @@ def process_repo(
 
     if not pcb_paths:
         print("  no .kicad_pcb files")
-        return 0, 0
+        return 0
 
     print(f"  {len(pcb_paths)} .kicad_pcb file(s)  (branch: {branch})")
 
-    repo_dir   = output_dir / repo["full_name"].replace("/", "__")
-    downloaded = 0
-    passed     = 0
+    repo_dir = output_dir / repo["full_name"].replace("/", "__")
+    passed   = 0
 
     for file_path in pcb_paths:
         file_name = Path(file_path).name
@@ -314,23 +315,32 @@ def process_repo(
             print(f"    skip (download failed): {file_name}")
             continue
 
-        repo_dir.mkdir(parents=True, exist_ok=True)
-        local_pcb = repo_dir / file_name
-        local_pcb.write_bytes(content)
-        downloaded += 1
-
-        score      = score_board(local_pcb)
-        score_file = repo_dir / file_name.replace(".kicad_pcb", ".score.json")
-        score_file.write_text(json.dumps(score, indent=2))
+        # Score from a temp file — nothing written to the training dir yet.
+        # Failing boards are discarded without touching disk.
+        tmp_fd, tmp_path_str = tempfile.mkstemp(suffix=".kicad_pcb")
+        try:
+            with os.fdopen(tmp_fd, "wb") as fh:
+                fh.write(content)
+            score = score_board(Path(tmp_path_str))
+        finally:
+            Path(tmp_path_str).unlink(missing_ok=True)
 
         status = "✓" if score["passes"] else f"✗  {score['reason']}"
         print(f"    {file_name}: {score['net_count']} nets, "
               f"{score['routing_pct']:.0f}% routed — {status}")
 
-        if score["passes"]:
-            passed += 1
+        if not score["passes"]:
+            continue
 
-    return downloaded, passed
+        # Only now write to the training directory
+        repo_dir.mkdir(parents=True, exist_ok=True)
+        local_pcb  = repo_dir / file_name
+        score_file = repo_dir / file_name.replace(".kicad_pcb", ".score.json")
+        local_pcb.write_bytes(content)
+        score_file.write_text(json.dumps(score, indent=2))
+        passed += 1
+
+    return passed
 
 
 # ── Candidates index ──────────────────────────────────────────────────────────
@@ -413,7 +423,6 @@ def main() -> None:
                 yield repo
 
     # ── Process repos ─────────────────────────────────────────────────────────
-    total_dl     = 0
     total_passed = 0
     processed    = 0
 
@@ -428,14 +437,12 @@ def main() -> None:
         print(f"\n[{processed}] {full_name}  ★{stars}")
 
         try:
-            dl, passed = process_repo(client, repo, output_dir, args.dry_run)
-            total_dl     += dl
+            passed = process_repo(client, repo, output_dir, args.dry_run)
             total_passed += passed
 
             if not args.dry_run:
                 visited[full_name] = {
                     "visited_at":   time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                    "files_dl":     dl,
                     "files_passed": passed,
                 }
                 visited_path.write_text(json.dumps(visited, indent=2))
@@ -463,9 +470,9 @@ def main() -> None:
 
     # ── Summary ───────────────────────────────────────────────────────────────
     print(f"\n{'─' * 60}")
-    print(f"Downloaded : {total_dl} files")
-    print(f"Passed     : {total_passed} files")
-    print(f"Candidates : {len(candidates)} total  →  {candidates_path}")
+    print(f"Repos processed : {processed}")
+    print(f"Boards saved    : {total_passed}  (failing boards discarded)")
+    print(f"Candidates      : {len(candidates)} total  →  {candidates_path}")
 
 
 if __name__ == "__main__":
