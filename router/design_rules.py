@@ -113,3 +113,27 @@ PROFESSIONAL = DesignRules(
     via_cost=3.0,
     edge_clearance_mm=0.2,
 )
+
+# Zbotic (zbotic.in) — Indian online fab (Moxie Supply Pvt Ltd, Pune)
+# Specs from: zbotic.in/pcb-technical-design-guidelines/
+ZBOTIC_2L = DesignRules(
+    name="Zbotic — 1-2 layer (0.127mm / 5mil)",
+    resolution_mm=0.127,
+    clearance_mm=0.127,
+    component_clearance_mm=0.2,
+    via_drill_mm=0.15,
+    via_annular_mm=0.13,   # min annular ring per their spec
+    via_cost=4.0,
+    edge_clearance_mm=0.3,
+)
+
+ZBOTIC_4L = DesignRules(
+    name="Zbotic — 4+ layer (0.1mm / 4mil)",
+    resolution_mm=0.1,
+    clearance_mm=0.1,
+    component_clearance_mm=0.15,
+    via_drill_mm=0.15,
+    via_annular_mm=0.1,    # min annular ring per their spec
+    via_cost=3.0,
+    edge_clearance_mm=0.3,
+)
