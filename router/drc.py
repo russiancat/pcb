@@ -1,18 +1,27 @@
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import List
+from typing import TYPE_CHECKING, List
 
 import numpy as np
 
 from .board import Grid
 from .design_rules import DesignRules
 
+if TYPE_CHECKING:
+    from .manufacturer_profile import ManufacturerProfile
+
 
 class ViolationType(Enum):
+    # Grid / routing checks (run_drc)
     OPEN = auto()
     EDGE_CLEARANCE = auto()
     SHORT_CIRCUIT = auto()
     PAD_CLEARANCE = auto()
+    # Profile compatibility checks (check_profile_compatibility)
+    TRACE_TOO_NARROW = auto()
+    VIA_DRILL_TOO_SMALL = auto()
+    VIA_DIAMETER_TOO_SMALL = auto()
+    ANNULAR_RING_TOO_NARROW = auto()
 
 
 @dataclass(frozen=True)
@@ -26,13 +35,13 @@ class DRCViolation:
 
 def run_drc(grid: Grid, nets: list, router, rules: DesignRules) -> List[DRCViolation]:
     """
-    Post-route DRC. Returns typed violations categorised as:
+    Post-route grid DRC. Returns typed violations:
       OPEN           — unrouted net
       EDGE_CLEARANCE — trace within edge keepout zone
       SHORT_CIRCUIT  — two routed traces of different nets adjacent
-                       (true routing bug; pad-to-pad adjacency is excluded)
+                       (true routing bug; pad-to-pad adjacency excluded)
       PAD_CLEARANCE  — pad of one net adjacent to pad/trace of another
-                       (placement concern, not a routing bug)
+                       (placement issue, not a routing bug)
     """
     violations: List[DRCViolation] = []
 
@@ -85,5 +94,53 @@ def run_drc(grid: Grid, nets: list, router, rules: DesignRules) -> List[DRCViola
         ver = np.where((lg[:-1, :] > 0) & (lg[1:, :] > 0) & (lg[:-1, :] != lg[1:, :]))
         for r, c in zip(ver[0], ver[1]):
             _classify_adj(layer, r, c, r + 1, c)
+
+    return violations
+
+
+def check_profile_compatibility(
+    rules: DesignRules,
+    profile: 'ManufacturerProfile',
+) -> List[DRCViolation]:
+    """
+    Check whether the routing DesignRules satisfy the manufacturer's capabilities.
+
+    This is a configuration check, not a grid scan — it runs once and answers:
+    "Were the routing parameters chosen compatible with what this fab can produce?"
+
+    Returns violations for any routing parameter that falls below the fab's minimum.
+    An empty list means the routing config is within spec for this manufacturer.
+    """
+    violations: List[DRCViolation] = []
+    dr = profile.design_rules
+
+    if rules.resolution_mm < dr.resolution_mm:
+        violations.append(DRCViolation(
+            ViolationType.TRACE_TOO_NARROW,
+            f"trace width {rules.resolution_mm:.3f}mm < {profile.name} minimum "
+            f"{dr.resolution_mm:.3f}mm",
+        ))
+
+    if rules.via_drill_mm < dr.via_drill_mm:
+        violations.append(DRCViolation(
+            ViolationType.VIA_DRILL_TOO_SMALL,
+            f"via drill {rules.via_drill_mm:.3f}mm < {profile.name} minimum "
+            f"{dr.via_drill_mm:.3f}mm",
+        ))
+
+    if rules.via_annular_mm < dr.via_annular_mm:
+        violations.append(DRCViolation(
+            ViolationType.ANNULAR_RING_TOO_NARROW,
+            f"annular ring {rules.via_annular_mm:.3f}mm < {profile.name} minimum "
+            f"{dr.via_annular_mm:.3f}mm",
+        ))
+
+    via_diameter = rules.via_drill_mm + 2 * rules.via_annular_mm
+    if via_diameter < profile.min_via_diameter_mm:
+        violations.append(DRCViolation(
+            ViolationType.VIA_DIAMETER_TOO_SMALL,
+            f"via pad {via_diameter:.3f}mm < {profile.name} minimum "
+            f"{profile.min_via_diameter_mm:.3f}mm",
+        ))
 
     return violations
