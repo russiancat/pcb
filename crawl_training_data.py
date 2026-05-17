@@ -511,9 +511,9 @@ def main() -> None:
                 if passed:
                     repo_dir    = output_dir / full_name.replace("/", "__")
                     new_entries = _collect_candidates(repo, repo_dir)
-                    existing    = {c["file"] for c in candidates}
+                    existing    = {c["pcb_file"] for c in candidates}
                     candidates.extend(e for e in new_entries
-                                      if e["file"] not in existing)
+                                      if e["pcb_file"] not in existing)
                     candidates.sort(key=lambda c: (-c["routing_pct"], -c["stars"]))
                     candidates_path.write_text(json.dumps(candidates, indent=2))
 
