@@ -15,6 +15,7 @@ logging.basicConfig(level=logging.INFO, format="  %(message)s")
 from router import POUR_NET_NAMES
 from router.board import Grid
 from router.kicad_parser import KiCadBoard
+from router.kicad_writer import KiCadWriter
 from router.manufacturer_profile import HOME_ETCH, JLCPCB_2L, PCBWAY_2L
 from router.router import Router
 from visualize import plot_board
@@ -92,6 +93,17 @@ if pour_nets:
             filled = router.copper_pour(pnet.net_id, lyr)
             if filled:
                 print(f"  {pnet.name} layer {lyr}: {filled} cells poured")
+
+# ------------------------------------------------------------------
+# Export routed board back to .kicad_pcb
+# ------------------------------------------------------------------
+out_pcb = PCB_FILE.replace(".kicad_pcb", "_routed.kicad_pcb")
+if out_pcb == PCB_FILE:
+    out_pcb = PCB_FILE + "_routed.kicad_pcb"
+writer = KiCadWriter(grid, router, RULES, board.origin_x, board.origin_y)
+n_seg, n_via = writer.write(PCB_FILE, out_pcb)
+print(f"Exported : {out_pcb}  ({n_seg} segments, {n_via} vias)")
+print("          Open in KiCad → File → Plot → Gerbers to send to fab.")
 
 # ------------------------------------------------------------------
 # Visualise

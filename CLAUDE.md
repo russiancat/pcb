@@ -34,6 +34,7 @@ router/
   drc.py            ViolationType enum, DRCViolation dataclass, run_drc()
   quality.py        QualityReport dataclass, quality_report()
   kicad_parser.py   Parses .kicad_pcb files — handles KiCad 7/8 and KiCad 10 formats
+  kicad_writer.py   KiCadWriter — appends routed segments/vias to a .kicad_pcb file
   __init__.py       POUR_NET_NAMES frozenset
 visualize.py        matplotlib — two-panel (F.Cu / B.Cu), legend below, pour areas
 kicad_demo.py       Load + route + visualise a single board
@@ -166,7 +167,7 @@ Filter by `v.type == ViolationType.SHORT_CIRCUIT` — never string-match on `str
 10. **Web frontend** — backend: auth + storage (S3, no DB). All routing in browser.
 11. **Board size restriction** for free tier
 12. **Copper fills UI** — pour is implemented in router, needs UI exposure
-13. **Export — Phase 1 (now)**: write routed traces back into the original `.kicad_pcb` file as `(segment ...)` / `(via ...)` nodes → user opens in KiCad → File → Plot → Gerbers → ZIP → upload to fab. Requires KiCad but zero new format complexity.
+13. **Export — Phase 1 (done)**: `KiCadWriter` appends routed traces and vias as `(segment ...)` / `(via ...)` nodes into a copy of the `.kicad_pcb` file → user opens in KiCad → File → Plot → Gerbers → ZIP → upload to fab. Copper pour export (zone fills) is Phase 2.
 14. **Export — Phase 2 (web product)**: build a native Gerber generator (RS-274X). Web users won't have KiCad. Minimum files: `F.Cu.gbr`, `B.Cu.gbr`, `Edge.Cuts.gbr`, `drill.drl` (Excellon). One week of careful work — soldermask openings, aperture definitions, pad shapes all need handling. Do this when building the web frontend.
 
 ## Code Standards
