@@ -40,6 +40,7 @@ Extra dependency (not needed for the router itself):
 """
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -47,7 +48,7 @@ import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as _TimeoutError
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Set, Tuple
 
 try:
     import requests
@@ -340,17 +341,23 @@ def _save(repo_dir: Path, repo_path: str, content: bytes) -> Path:
     return dest
 
 
+def _md5(content: bytes) -> str:
+    return hashlib.md5(content).hexdigest()
+
+
 def process_repo(
-    client:     GitHubClient,
-    repo:       dict,
-    output_dir: Path,
-    dry_run:    bool,
+    client:       GitHubClient,
+    repo:         dict,
+    output_dir:   Path,
+    dry_run:      bool,
+    known_hashes: Set[str],
 ) -> int:
     """
     Score every .kicad_pcb in the repo.  If any pass, save them plus all
     companion files (.kicad_sch, .sch, .kicad_pro, .kicad_dru), preserving
-    the original directory structure.  Failing PCBs are never written to disk.
-    Returns the number of passing PCBs saved.
+    the original directory structure.  Failing PCBs and duplicate content
+    (matched by MD5) are never written to disk.
+    Returns the number of new unique passing PCBs saved.
     """
     owner  = repo["owner"]["login"]
     name   = repo["name"]
@@ -389,21 +396,27 @@ def process_repo(
             print("failed")
             continue
 
+        h = _md5(content)
+        if h in known_hashes:
+            print("duplicate — skipped")
+            continue
+
         score  = _score_with_timeout(content)
         status = "✓" if score["passes"] else f"✗  {score['reason']}"
         print(f"{score['net_count']} nets, "
               f"{score['routing_pct']:.0f}% routed — {status}")
 
         if score["passes"]:
-            passing.append((file_path, content, score))
+            passing.append((file_path, content, score, h))
 
     if not passing:
         return 0
 
     # ── Save passing PCBs + score files ───────────────────────────────────────
-    for file_path, content, score in passing:
+    for file_path, content, score, h in passing:
         dest = _save(repo_dir, file_path, content)
         dest.with_suffix(".score.json").write_text(json.dumps(score, indent=2))
+        known_hashes.add(h)
 
     # ── Save companion files (schematic, project, design rules) ───────────────
     # Only save companions that live in the same directory as a passing PCB —
@@ -499,6 +512,7 @@ def main() -> None:
     output_dir      = Path(args.output)
     visited_path    = output_dir / "visited.json"
     candidates_path = output_dir / "candidates.json"
+    hashes_path     = output_dir / "hashes.json"
 
     if not args.dry_run:
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -507,6 +521,8 @@ def main() -> None:
                         if visited_path.exists() else {})
     candidates: list = (json.loads(candidates_path.read_text())
                         if candidates_path.exists() else [])
+    known_hashes: Set[str] = set(json.loads(hashes_path.read_text())
+                                 if hashes_path.exists() else [])
 
     client = GitHubClient(args.token)
 
@@ -549,7 +565,8 @@ def main() -> None:
             visited_path.write_text(json.dumps(visited, indent=2))
 
         try:
-            passed = process_repo(client, repo, output_dir, args.dry_run)
+            passed = process_repo(client, repo, output_dir, args.dry_run,
+                                   known_hashes)
             print(f"  → done ({passed} saved), updating state ...")
             total_passed += passed
 
@@ -565,6 +582,8 @@ def main() -> None:
                                       if e["pcb_file"] not in existing)
                     candidates.sort(key=lambda c: (-c["routing_pct"], -c["stars"]))
                     candidates_path.write_text(json.dumps(candidates, indent=2))
+                    hashes_path.write_text(json.dumps(sorted(known_hashes),
+                                                      indent=2))
 
         except KeyboardInterrupt:
             print("\nInterrupted — progress saved.")
