@@ -421,7 +421,7 @@ def process_repo(
     # ── Save companion files (schematic, project, design rules) ───────────────
     # Only save companions that live in the same directory as a passing PCB —
     # avoids downloading schematics for boards that didn't pass the quality gate.
-    passing_dirs = {str(Path(fp).parent) for fp, _, _ in passing}
+    passing_dirs = {str(Path(fp).parent) for fp, _, _, _ in passing}
     relevant_comps = [fp for fp in comp_paths
                       if str(Path(fp).parent) in passing_dirs]
 
