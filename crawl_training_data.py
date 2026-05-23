@@ -406,9 +406,15 @@ def process_repo(
         dest.with_suffix(".score.json").write_text(json.dumps(score, indent=2))
 
     # ── Save companion files (schematic, project, design rules) ───────────────
+    # Only save companions that live in the same directory as a passing PCB —
+    # avoids downloading schematics for boards that didn't pass the quality gate.
+    passing_dirs = {str(Path(fp).parent) for fp, _, _ in passing}
+    relevant_comps = [fp for fp in comp_paths
+                      if str(Path(fp).parent) in passing_dirs]
+
     saved_companions = 0
-    for i, file_path in enumerate(comp_paths, 1):
-        print(f"    companion [{i}/{len(comp_paths)}] {Path(file_path).name} ...",
+    for i, file_path in enumerate(relevant_comps, 1):
+        print(f"    companion [{i}/{len(relevant_comps)}] {Path(file_path).name} ...",
               end=" ", flush=True)
         content = client.download_raw(owner, name, branch, file_path)
         if content is not None:
@@ -419,7 +425,7 @@ def process_repo(
             print("failed")
 
     if saved_companions:
-        print(f"  saved {saved_companions}/{len(comp_paths)} companion file(s)")
+        print(f"  saved {saved_companions}/{len(relevant_comps)} companion file(s)")
 
     return len(passing)
 
