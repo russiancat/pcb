@@ -150,10 +150,13 @@ CLAUDE.md               Project context for AI assistant sessions
 - [ ] Negotiated congestion (PathFinder-style)
 
 ### Phase 2 — GNN-assisted routing
-- [ ] Collect training data — `crawl_training_data.py` crawls GitHub (`kicad`, `kicad-pcb`, `open-hardware` topics + `extension:kicad_pcb` code search), scores each board (routing completion, component placement, board size), saves passing boards to `data/training/` with per-file score reports
-- [ ] GNN model: netlist graph → net ordering + strategy tags
-- [ ] Zone decomposition predicted by GNN
-- [ ] RL training loop: benchmark score → reward → GNN weight update
+- [x] Collect training data — `crawl_training_data.py` crawls GitHub, scores boards, saves passing boards with companions to `data/training/`
+- [ ] PathFinder baseline — negotiated congestion without ML, establishes improvement floor for GNN
+- [ ] Graph extractor — `.kicad_pcb` → PyG `HeteroData` graph (components + nets + pads as typed nodes)
+- [ ] GNN net ordering (Option B) — GAT encodes netlist, predicts net order + zone assignments, A* executes; validates that learned planning improves completion rate
+- [ ] Routeability predictor — GNN surrogate estimates completion% from placement without running A*; prerequisite for auto-placement
+- [ ] Iterative cooperative routing (Option D) — chunked GNN↔A* feedback loop with temporal attention over chunk history and rip-up decisions; see DECISIONS.md
+- [ ] RL training loop — per-fab model, reward = hard constraints (shorts/fab violations/current capacity → R=0) × weighted product of soft objectives (completion², wire efficiency, via efficiency, DRC score, thermal score); per-chunk intermediate rewards with discount; see DECISIONS.md D4
 
 ### Phase 3 — Auto-placement
 - [ ] GNN model: netlist graph → component positions
